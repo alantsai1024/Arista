@@ -1,0 +1,49 @@
+version: '3.8'
+
+# Production configuration
+# Use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  backend:
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-arista}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arista}
+    # Remove volume mounts in production (use built images)
+    volumes: []
+    # Use production command
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+
+  collector:
+    restart: unless-stopped
+    # Remove volume mounts in production
+    volumes: []
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-arista}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arista}
+      - REDIS_URL=redis://redis:6379/0
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+      - MQTT_RAW_COMPAT_ENABLED=${MQTT_RAW_COMPAT_ENABLED:-false}
+      - RETENTION_ENABLED=${RETENTION_ENABLED:-true}
+      - RETENTION_BASE_DIR=${RETENTION_BASE_DIR:-./runtime}
+      - RETENTION_TARGETS=${RETENTION_TARGETS:-*}
+      - POLLING_INTERVAL=${POLLING_INTERVAL:-10}
+
+  frontend:
+    restart: unless-stopped
+    # Remove volume mounts in production
+    volumes: []
+    # Use production build
+    command: npm start
+
+  postgres:
+    restart: unless-stopped
+    # Add backup volume
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+
+  redis:
+    restart: unless-stopped
+
+  mqtt:
+    restart: unless-stopped

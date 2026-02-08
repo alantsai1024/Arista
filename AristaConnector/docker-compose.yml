@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: arista-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arista}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-arista123}
+      POSTGRES_DB: ${POSTGRES_DB:-arista}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arista}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: arista-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    container_name: arista-mqtt
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+      - "${MQTT_WS_PORT:-9001}:9001"
+    volumes:
+      - ./mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqtt_data:/mosquitto/data
+      - mqtt_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_pub -h localhost -t arista/healthcheck -m ok -r && mosquitto_sub -h localhost -t arista/healthcheck -C 1 -W 3 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: arista-backend
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-arista}:${POSTGRES_PASSWORD:-arista123}@postgres:5432/${POSTGRES_DB:-arista}
+      - REDIS_URL=redis://redis:6379/0
+      - MQTT_HOST=${MQTT_HOST:-mqtt}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_TLS=${MQTT_TLS:-false}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_RAW_COMPAT_ENABLED=${MQTT_RAW_COMPAT_ENABLED:-false}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  collector:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: arista-collector
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-arista}:${POSTGRES_PASSWORD:-arista123}@postgres:5432/${POSTGRES_DB:-arista}
+      - REDIS_URL=redis://redis:6379/0
+      - MQTT_HOST=${MQTT_HOST:-mqtt}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_TLS=${MQTT_TLS:-false}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_RAW_COMPAT_ENABLED=${MQTT_RAW_COMPAT_ENABLED:-false}
+      - POLLING_INTERVAL=${POLLING_INTERVAL:-10}
+      - MAX_CONCURRENT_POLLS=${MAX_CONCURRENT_POLLS:-20}
+      - POLLING_TIMEOUT=${POLLING_TIMEOUT:-5.0}
+      - OFFLINE_THRESHOLD_SEC=${OFFLINE_THRESHOLD_SEC:-30}
+      - RETENTION_ENABLED=${RETENTION_ENABLED:-true}
+      - RETENTION_BASE_DIR=${RETENTION_BASE_DIR:-./runtime}
+      - RETENTION_TARGETS=${RETENTION_TARGETS:-*}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: python collector.py
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: arista-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT:-8000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  postgres_data:
+  redis_data:
+  mqtt_data:
+  mqtt_log:
