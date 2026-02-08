@@ -1,127 +1,128 @@
-# Next.js Dashboard Implementation Summary
+﻿# Next.js 儀表板實作摘要
 
-## ✅ Completed Features
+## ✅ 已完成功能
 
-### 1. Fleet Page (`/fleet`)
+### 1. 機群頁（`/fleet`）
 
-**Features:**
-- ✅ Summary cards: total, online, degraded, offline counts
-- ✅ Device table with columns:
+**功能：**
+- ✅ 摘要卡片：總數、online、degraded、offline
+- ✅ 設備表格欄位：
   - Hostname
-  - IP address
-  - Status (with color badges)
-  - Last seen (formatted relative time)
-  - Average latency (ms)
-  - Events per 10 seconds
-- ✅ Auto-refresh every 10 seconds
-- ✅ Manual refresh button
-- ✅ Refresh animation indicator
-- ✅ Row highlighting when ranking changes (CSS transition)
-- ✅ Clickable rows to navigate to device detail
+  - IP 位址
+  - 狀態（彩色 badge）
+  - 最後上線時間（相對時間格式）
+  - 平均延遲（ms）
+  - 每 10 秒事件數
+- ✅ 每 10 秒自動更新
+- ✅ 手動重新整理按鈕
+- ✅ 重新整理動畫指示
+- ✅ 排名變動時列高亮（CSS transition）
+- ✅ 點擊列可跳轉設備詳情
 
-**UI Enhancements:**
-- Status badges with color coding (green/yellow/red)
-- Highlight animation for moved rows (yellow background, 2s duration)
-- Loading states
-- Responsive design
+**UI 強化：**
+- 狀態 badge 顏色區分（綠 / 黃 / 紅）
+- 排名變動高亮動畫（黃色背景，2 秒）
+- Loading 狀態
+- 響應式設計
 
-### 2. Device Detail Page (`/devices/[id]`)
+### 2. 設備詳情頁（`/devices/[id]`）
 
-**Features:**
-- ✅ Device information display
-- ✅ Status information with recent stats
-- ✅ Recent 50 events list
-- ✅ Expandable JSON metadata for events
-- ✅ Auto-refresh every 10 seconds
-- ✅ Back navigation to fleet
+**功能：**
+- ✅ 顯示設備基本資訊
+- ✅ 顯示狀態與近期統計
+- ✅ 顯示最近 50 筆事件
+- ✅ 事件 JSON metadata 可展開/收合
+- ✅ 每 10 秒自動更新
+- ✅ 返回機群頁導覽
 
-**Event Display:**
-- Event type badges
-- Timestamp formatting
-- Expandable/collapsible JSON metadata
-- Scrollable event list
+**事件呈現：**
+- 事件類型 badge
+- 時間格式化
+- JSON metadata 展開/收合
+- 可捲動事件列表
 
-### 3. Backend Endpoints
+### 3. Backend 端點
 
-**Updated/Added:**
-- ✅ `GET /health/fleet` - Enhanced with degraded count and top latency devices
-- ✅ `GET /devices/{id}/status` - Enhanced with recent stats
-- ✅ `GET /devices/{id}/events?limit=50` - New endpoint for device events
+**更新/新增：**
+- ✅ `GET /health/fleet`：新增 degraded 計數與高延遲設備
+- ✅ `GET /devices/{id}/status`：擴充近期統計
+- ✅ `GET /devices/{id}/events?limit=50`：新增設備事件查詢
 
-### 4. Navigation
+### 4. 導覽
 
-- ✅ Navigation bar with logo and menu
-- ✅ Active route highlighting
-- ✅ Home page redirects to /fleet
+- ✅ 導覽列（logo + menu）
+- ✅ 目前路由高亮
+- ✅ 首頁自動導向 `/fleet`
 
-### 5. Playwright E2E Tests
+### 5. Playwright E2E 測試
 
-**Test Coverage:**
-- ✅ `fleet page renders and updates` - Verifies table renders and values change after 12 seconds
-- ✅ `fleet page table row click navigates to device detail` - Verifies navigation works
+**測試涵蓋：**
+- ✅ `fleet page renders and updates`：驗證表格渲染，並在 12 秒後值有更新
+- ✅ `fleet page table row click navigates to device detail`：驗證點擊列可跳轉詳情
 
-**Test Features:**
-- Mock API responses with incrementing counters
-- Verifies UI elements render correctly
-- Verifies auto-refresh functionality
-- Verifies navigation
+**測試能力：**
+- 使用遞增計數 mock API 回應
+- 驗證 UI 元件可正確顯示
+- 驗證自動更新
+- 驗證導覽流程
 
-### 6. Configuration
+### 6. 設定
 
-- ✅ Playwright configuration
-- ✅ Makefile command: `make test-e2e`
-- ✅ Package.json updated with Playwright dependency
+- ✅ Playwright 設定
+- ✅ Makefile 指令：`make test-e2e`
+- ✅ `package.json` 已加入 Playwright 依賴
 
-## Page Routes
+## 頁面路由
 
 ```
-/ → redirects to /fleet
-/fleet → Fleet overview page
-/devices/[id] → Device detail page
+/ → 重新導向到 /fleet
+/fleet → 機群總覽頁
+/devices/[id] → 設備詳情頁
 ```
 
-## API Integration
+## 介面整合
 
-**Fleet Page:**
-- `GET /health/fleet` - Health summary
-- `GET /devices` - Device list
+**機群頁：**
+- `GET /health/fleet`：健康摘要
+- `GET /devices`：設備列表
 
-**Device Detail Page:**
-- `GET /devices/{id}` - Device info
-- `GET /devices/{id}/status` - Device status
-- `GET /devices/{id}/events?limit=50` - Recent events
+**設備詳情頁：**
+- `GET /devices/{id}`：設備資訊
+- `GET /devices/{id}/status`：設備狀態
+- `GET /devices/{id}/events?limit=50`：近期事件
 
-## UI Features
+## 介面特性
 
-### Refresh Animation
-- Spinning indicator during refresh
-- Row highlighting when device ranking changes
-- Smooth CSS transitions
+### 重新整理動畫
+- 重新整理時顯示旋轉指示
+- 設備排名變化時列高亮
+- 平滑 CSS 轉場
 
-### Status Colors
-- **Online**: Green badge
-- **Degraded**: Yellow badge
-- **Offline**: Red badge
+### 狀態顏色
+- **Online**：綠色 badge
+- **Degraded**：黃色 badge
+- **Offline**：紅色 badge
 
-### Event Display
-- Expandable JSON metadata
-- Color-coded event types
-- Formatted timestamps
+### 事件顯示
+- JSON metadata 可展開
+- 事件類型顏色區分
+- 格式化時間戳
 
-## Testing
+## 測試
 
-Run E2E tests:
+執行 E2E 測試：
 ```bash
 make test-e2e
-# or
+# 或
 cd frontend && npx playwright test
 ```
 
-## Next Steps
+## 下一步
 
-1. Add device filtering/search
-2. Add sorting by columns
-3. Add pagination for large device lists
-4. Add charts/graphs for device metrics
-5. Add export functionality
-6. Add device management actions (enable/disable, edit)
+1. 新增設備過濾與搜尋
+2. 支援欄位排序
+3. 大量設備分頁
+4. 新增圖表與趨勢視覺化
+5. 新增匯出功能
+6. 新增設備管理操作（enable/disable、edit）
+

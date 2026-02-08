@@ -1,25 +1,25 @@
-# MQTT Publishing Implementation Summary
+﻿# MQTT 發布實作摘要
 
-## ✅ Completed Features
+## ✅ 已完成功能
 
-### 1. MQTT Client Module (`backend/app/services/mqtt_client.py`)
+### 1. MQTT Client 模組（`backend/app/services/mqtt_client.py`）
 
-**Configuration:**
-- ✅ Environment variables: `MQTT_HOST`, `MQTT_PORT`, `MQTT_TLS`, `MQTT_USERNAME`, `MQTT_PASSWORD`
-- ✅ Supports TLS connections
-- ✅ Automatic reconnection handling
+**設定：**
+- ✅ 環境變數：`MQTT_HOST`、`MQTT_PORT`、`MQTT_TLS`、`MQTT_USERNAME`、`MQTT_PASSWORD`
+- ✅ 支援 TLS 連線
+- ✅ 自動重連處理
 
-**Publishing:**
-- ✅ `publish_state()` - State messages (QoS=1, retained=true)
-- ✅ `publish_telemetry()` - Telemetry messages (QoS=1, retained=false)
-- ✅ Normalized envelope format for all messages
+**發布：**
+- ✅ `publish_state()`：狀態訊息（QoS=1，retained=true）
+- ✅ `publish_telemetry()`：遙測訊息（QoS=1，retained=false）
+- ✅ 所有訊息使用一致 envelope 格式
 
-**Topic Structure:**
-- State: `arista/default/<device_id>/state`
-- Telemetry: `arista/default/<device_id>/telemetry/<collector>`
-  - Collectors: `system-clock`, `system-hostname`, `interfaces-status`
+**Topic 結構：**
+- 狀態：`arista/default/<device_id>/state`
+- 遙測：`arista/default/<device_id>/telemetry/<collector>`
+  - Collectors：`system-clock`、`system-hostname`、`interfaces-status`
 
-**Envelope Format:**
+**Envelope 格式：**
 ```json
 {
   "ts": <unix_timestamp>,
@@ -40,85 +40,86 @@
 }
 ```
 
-### 2. Collector Integration (`backend/collector.py`)
+### 2. Collector 整合（`backend/collector.py`）
 
-- ✅ Publishes state on successful poll
-- ✅ Publishes telemetry for each eAPI command
-- ✅ Includes latency in envelope
-- ✅ Error handling for MQTT failures
+- ✅ 輪詢成功時發布狀態訊息
+- ✅ 每個 eAPI 指令都發布遙測訊息
+- ✅ envelope 內含 latency
+- ✅ 有處理 MQTT 發布失敗情況
 
 ### 3. Docker Compose
 
-- ✅ Mosquitto container already configured
-- ✅ Environment variables for MQTT configuration
-- ✅ Health checks enabled
+- ✅ 已配置 Mosquitto 容器
+- ✅ 已配置 MQTT 相關環境變數
+- ✅ 已啟用健康檢查
 
-### 4. Integration Tests (`backend/tests/test_mqtt.py`)
+### 4. 整合測試（`backend/tests/test_mqtt.py`）
 
-**Test Coverage:**
-- ✅ `test_state_retained` - Late subscriber receives retained state
-- ✅ `test_telemetry_not_retained` - Late subscriber does NOT receive old telemetry
-- ✅ `test_qos1_publish_no_error` - QoS=1 publish works without errors
-- ✅ `test_envelope_structure` - Envelope format validation
-- ✅ `test_collector_name_mapping` - Command to collector name mapping
+**測試涵蓋：**
+- ✅ `test_state_retained`：晚訂閱者可收到 retained state
+- ✅ `test_telemetry_not_retained`：晚訂閱者不會收到舊 telemetry
+- ✅ `test_qos1_publish_no_error`：QoS=1 發布可正常完成
+- ✅ `test_envelope_structure`：驗證 envelope 格式
+- ✅ `test_collector_name_mapping`：驗證 command 到 collector 名稱映射
 
 ### 5. Makefile
 
-- ✅ `make test-mqtt` command added
+- ✅ 已新增 `make test-mqtt`
 
-## Environment Variables
+## 環境變數
 
 ```bash
-MQTT_HOST=mqtt          # MQTT broker hostname
-MQTT_PORT=1883         # MQTT broker port
-MQTT_TLS=false         # Enable TLS (true/false)
-MQTT_USERNAME=         # Optional username
-MQTT_PASSWORD=         # Optional password
+MQTT_HOST=mqtt          # MQTT broker 主機名稱
+MQTT_PORT=1883         # MQTT broker 埠號
+MQTT_TLS=false         # 是否啟用 TLS（true/false）
+MQTT_USERNAME=         # 可選：帳號
+MQTT_PASSWORD=         # 可選：密碼
 ```
 
-## Topic Examples
+## 主題範例
 
-**State Topic:**
+**State Topic：**
 ```
 arista/default/550e8400-e29b-41d4-a716-446655440000/state
 ```
 
-**Telemetry Topics:**
+**Telemetry Topics：**
 ```
 arista/default/550e8400-e29b-41d4-a716-446655440000/telemetry/system-clock
 arista/default/550e8400-e29b-41d4-a716-446655440000/telemetry/system-hostname
 arista/default/550e8400-e29b-41d4-a716-446655440000/telemetry/interfaces-status
 ```
 
-## Message Flow
+## 訊息流程
 
-1. Collector polls device successfully
-2. State message published (retained=true)
-3. Telemetry messages published for each command (retained=false)
-4. Late subscribers receive state immediately (retained)
-5. Late subscribers do NOT receive old telemetry (not retained)
+1. Collector 輪詢設備成功
+2. 發布 state 訊息（retained=true）
+3. 針對每個命令發布 telemetry（retained=false）
+4. 晚訂閱者會立刻收到 state（retained）
+5. 晚訂閱者不會收到舊 telemetry（非 retained）
 
-## Testing
+## 測試
 
-Run MQTT tests:
+執行 MQTT 測試：
 ```bash
 make test-mqtt
-# or
+# 或
 docker compose exec backend pytest tests/test_mqtt.py -v -s
 ```
 
-## Collector Name Mapping
+## 採集器名稱映射
 
-| eAPI Command | Collector Name |
-|--------------|----------------|
+| eAPI 指令 | Collector 名稱 |
+|-----------|----------------|
 | `show clock` | `system-clock` |
 | `show hostname` | `system-hostname` |
 | `show interfaces status` | `interfaces-status` |
 
-## Next Steps
+## 下一步
 
-1. Add MQTT message validation
-2. Add metrics for MQTT publish success/failure
-3. Add support for custom topics per tenant
-4. Add message compression for large payloads
-5. Add MQTT connection pooling for high throughput
+1. 增加 MQTT 訊息驗證
+2. 新增 MQTT 發布成功/失敗指標
+3. 支援依租戶自訂 topics
+4. 大訊息 payload 壓縮
+5. 高吞吐場景的 MQTT 連線池化
+

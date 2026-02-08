@@ -1,51 +1,51 @@
-# Local Windows Setup (No Docker)
+﻿# Windows 本機安裝（無 Docker）
 
-This guide installs and runs all required services directly on Windows:
+本指南說明如何在 Windows 直接安裝並啟動所有必要服務：
 - PostgreSQL
 - Redis
 - Mosquitto
 - FastAPI backend
 - Collector
 
-## 1) Install PostgreSQL
+## 1) 安裝 PostgreSQL
 
-1. Install PostgreSQL 15+ from official installer.
-2. Create database and user:
+1. 從官方安裝程式安裝 PostgreSQL 15 以上版本。
+2. 建立資料庫與使用者：
 ```sql
 CREATE USER arista WITH PASSWORD 'arista123';
 CREATE DATABASE arista OWNER arista;
 ```
-3. Verify:
+3. 驗證連線：
 ```powershell
 psql -h localhost -U arista -d arista -c "SELECT 1;"
 ```
 
-## 2) Install Redis
+## 2) 安裝 Redis
 
-Options:
-- Redis on Windows build, or
-- Redis via WSL (if allowed in your environment).
+可選方案：
+- 使用 Windows 版本 Redis
+- 或透過 WSL 安裝 Redis（若環境允許）
 
-Verify:
+驗證：
 ```powershell
 redis-cli ping
 ```
-Expected: `PONG`.
+預期回應：`PONG`。
 
-## 3) Install Mosquitto
+## 3) 安裝 Mosquitto
 
-1. Install Eclipse Mosquitto for Windows.
-2. Start broker (default 1883):
+1. 安裝 Eclipse Mosquitto（Windows 版）。
+2. 啟動 broker（預設 1883）：
 ```powershell
 mosquitto -v
 ```
-3. Verify in another terminal:
+3. 在另一個終端機驗證：
 ```powershell
 mosquitto_pub -h localhost -t test -m hello
 mosquitto_sub -h localhost -t test -C 1
 ```
 
-## 4) Backend Setup
+## 4) 設定 Backend
 
 ```powershell
 cd backend
@@ -54,7 +54,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Set env vars:
+設定環境變數：
 ```powershell
 $env:DATABASE_URL="postgresql://arista:arista123@localhost:5432/arista"
 $env:REDIS_URL="redis://localhost:6379/0"
@@ -66,14 +66,14 @@ $env:RETENTION_BASE_DIR="./runtime"
 $env:RETENTION_TARGETS="*"
 ```
 
-Start API:
+啟動 API：
 ```powershell
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-## 5) Collector Setup
+## 5) 設定 Collector
 
-New terminal:
+開新終端機：
 ```powershell
 cd backend
 .\.venv\Scripts\Activate.ps1
@@ -84,9 +84,9 @@ $env:MQTT_PORT="1883"
 python collector.py
 ```
 
-## 6) Real vEOS Bootstrap
+## 6) 真實 vEOS Bootstrap
 
-New terminal:
+開新終端機：
 ```powershell
 cd backend
 .\.venv\Scripts\Activate.ps1
@@ -98,7 +98,7 @@ $env:VEOS_INTERVAL_SEC="10"
 python scripts/bootstrap_real_veos.py
 ```
 
-## 7) Acceptance Checks
+## 7) 驗收檢查
 
 ```powershell
 curl http://localhost:8000/devices
@@ -106,15 +106,15 @@ curl http://localhost:8000/health/fleet
 curl http://localhost:8000/devices/<device_id>/events
 ```
 
-MQTT checks:
+MQTT 檢查：
 ```powershell
 mosquitto_sub -h localhost -t "arista/default/+/state" -v
 mosquitto_sub -h localhost -t "arista/default/+/telemetry/+" -v
 ```
 
-Optional raw compatibility:
+可選原始相容模式：
 ```powershell
 $env:MQTT_RAW_COMPAT_ENABLED="true"
-# restart backend + collector processes
+# 重新啟動 backend 與 collector
 mosquitto_sub -h localhost -t "network/arista/raw/#" -v
 ```

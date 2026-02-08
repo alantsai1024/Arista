@@ -1,51 +1,51 @@
-# Quick Test (Real vEOS)
+﻿# 快速測試（真實 vEOS）
 
-## 1. Start Services
+## 1. 啟動服務
 
 ```bash
 docker compose up -d
 docker compose ps
 ```
 
-## 2. Bootstrap Target Devices
+## 2. Bootstrap 目標設備
 
 ```bash
 docker compose exec backend python scripts/bootstrap_real_veos.py
 ```
 
-This script will:
-- probe `192.168.56.2/3/4`
-- ask how to handle non-target devices (`delete/disable/keep`)
-- upsert target devices
-- run test-connection per target device
+此腳本會：
+- 探測 `192.168.56.2/3/4`
+- 詢問如何處理非目標設備（`delete/disable/keep`）
+- 對目標設備執行 upsert
+- 逐台執行 test-connection
 
-## 3. Validate API
+## 3. 驗證 API
 
 ```bash
 curl http://localhost:8000/devices
 curl http://localhost:8000/health/fleet
 ```
 
-## 4. Validate Events
+## 4. 驗證事件
 
 ```bash
-# find device id first
+# 先找 device id
 curl http://localhost:8000/devices
 
-# then query events
+# 再查事件
 curl http://localhost:8000/devices/<device_id>/events
 ```
 
-## 5. Validate MQTT
+## 5. 驗證 MQTT
 
 ```bash
 docker compose exec mqtt mosquitto_sub -h localhost -t "arista/default/+/state" -v
 docker compose exec mqtt mosquitto_sub -h localhost -t "arista/default/+/telemetry/+" -v
 ```
 
-Optional raw compatibility:
+可選原始相容模式：
 ```bash
-# set in .env
+# 在 .env 設定
 MQTT_RAW_COMPAT_ENABLED=true
 docker compose restart backend collector
 docker compose exec mqtt mosquitto_sub -h localhost -t "network/arista/raw/#" -v

@@ -1,63 +1,64 @@
-# Database Migrations
+﻿# 資料庫遷移
 
-## Quick Start
+## 快速開始
 
-### First Time Setup
+### 首次設定
 
-1. **Create initial migration:**
+1. **建立初始遷移：**
    ```bash
    cd backend
    alembic revision --autogenerate -m "Initial migration"
    ```
 
-2. **Review the generated migration file** in `alembic/versions/`
+2. **檢查產生的遷移檔案**（位於 `alembic/versions/`）
 
-3. **Apply migration:**
+3. **套用遷移：**
    ```bash
    alembic upgrade head
    ```
 
-### Using Docker
+### Docker 用法
 
 ```bash
-# Create migration
+# 建立遷移
 docker compose exec backend alembic revision --autogenerate -m "Description"
 
-# Apply migration
+# 套用遷移
 docker compose exec backend alembic upgrade head
 
-# Or use Makefile
+# 或使用 Makefile
 make migrate
 ```
 
-## Current Schema
+## 目前 Schema
 
-### Devices Table
-- `id` (UUID, primary key)
-- `hostname` (string, nullable)
-- `ip` (string, required, indexed)
-- `port` (integer, default 443)
-- `username` (string, required)
-- `password_enc` (text, encrypted password)
-- `interval_sec` (integer, default 10)
-- `enabled` (boolean, default true, indexed)
-- `created_at` (timestamp)
-- `updated_at` (timestamp, nullable)
+### Devices 資料表
+- `id`（UUID，主鍵）
+- `hostname`（string，可為空）
+- `ip`（string，必填，已建立索引）
+- `port`（integer，預設 443）
+- `username`（string，必填）
+- `password_enc`（text，加密密碼）
+- `interval_sec`（integer，預設 10）
+- `enabled`（boolean，預設 true，已建立索引）
+- `created_at`（timestamp）
+- `updated_at`（timestamp，可為空）
 
-### Events Table
-- `id` (UUID, primary key)
-- `device_id` (UUID, foreign key to devices.id)
-- `event_type` (string, indexed)
-- `message` (text, nullable)
-- `metadata` (text, JSON stored as text)
-- `created_at` (timestamp, indexed)
+### Events 資料表
+- `id`（UUID，主鍵）
+- `device_id`（UUID，外鍵到 devices.id）
+- `event_type`（string，已建立索引）
+- `message`（text，可為空）
+- `metadata`（text，以文字儲存 JSON）
+- `created_at`（timestamp，已建立索引）
 
-## Migration from Old Schema
+## 從舊 Schema 遷移
 
-If you have existing data with integer IDs, you'll need a custom migration to:
-1. Add UUID columns
-2. Generate UUIDs for existing records
-3. Update foreign keys
-4. Drop old integer columns
+若目前資料仍使用整數 ID，需撰寫客製 migration 來：
+1. 新增 UUID 欄位
+2. 為既有資料產生 UUID
+3. 更新外鍵關聯
+4. 移除舊的整數欄位
 
-See `MIGRATION_GUIDE.md` for details.
+詳細說明請見 `MIGRATION_GUIDE.md`。
+

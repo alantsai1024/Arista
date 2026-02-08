@@ -1,43 +1,43 @@
-# Quick Start
+﻿# 快速開始
 
-## Mode A: Docker Compose
+## 模式 A：Docker Compose
 
-1. Start services:
+1. 啟動服務：
 ```bash
 docker compose up -d
 ```
 
-2. Confirm services:
+2. 確認服務狀態：
 ```bash
 docker compose ps
 docker compose logs -f backend collector
 ```
 
-3. Bootstrap real vEOS devices (interactive cleanup included):
+3. Bootstrap 真實 vEOS 設備（含互動式清理）：
 ```bash
 docker compose exec backend python scripts/bootstrap_real_veos.py
 ```
 
-4. Validate:
+4. 驗證 API：
 ```bash
 curl http://localhost:8000/devices
 curl http://localhost:8000/health/fleet
 ```
 
-5. Validate MQTT:
+5. 驗證 MQTT：
 ```bash
 docker compose exec mqtt mosquitto_sub -h localhost -t "arista/default/+/state" -v
 docker compose exec mqtt mosquitto_sub -h localhost -t "arista/default/+/telemetry/+" -v
 ```
 
-## Mode B: Local Windows (No Docker)
+## 模式 B：Windows 本機（無 Docker）
 
-Use `LOCAL_WINDOWS_SETUP.md` to install:
+先依 `LOCAL_WINDOWS_SETUP.md` 安裝：
 - PostgreSQL
 - Redis
 - Mosquitto
 
-Then run:
+接著執行：
 ```powershell
 cd backend
 pip install -r requirements.txt
@@ -48,19 +48,19 @@ $env:MQTT_PORT="1883"
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-In another terminal:
+在另一個終端機：
 ```powershell
 cd backend
 python collector.py
 ```
 
-Bootstrap real devices:
+Bootstrap 真實設備：
 ```powershell
 cd backend
 python scripts/bootstrap_real_veos.py
 ```
 
-## Notes
+## 備註
 
-- `scripts/seed_30_devices.py` is deprecated.
-- Main acceptance is based on real vEOS polling and API+MQTT verification.
+- `scripts/seed_30_devices.py` 已淘汰。
+- 主要驗收依據為真實 vEOS 輪詢與 API + MQTT 驗證。

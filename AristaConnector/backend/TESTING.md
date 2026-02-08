@@ -1,35 +1,36 @@
-# Backend Testing Guide
+﻿# 後端測試指南
 
-## Run Tests
+## 執行測試
 
-Docker:
+Docker：
 ```bash
 docker compose exec backend pytest tests/ -v
 ```
 
-Local:
+本機：
 ```bash
 cd backend
 pytest tests/ -v
 ```
 
-## Key Test Files
+## 主要測試檔案
 
 - `tests/test_devices_api.py`
-  - device CRUD
-  - includes `DELETE /devices/{id}` tests
+  - 設備 CRUD
+  - 含 `DELETE /devices/{id}` 測試
 - `tests/test_connection.py`
-  - `test-connection` endpoint behavior
+  - `test-connection` 端點行為
 - `tests/test_collector_client.py`
-  - collector command profile contains `show version`
+  - collector 指令設定含 `show version`
 - `tests/test_retention_sink.py`
-  - retention failures are non-blocking
+  - retention 寫入失敗不應阻斷主流程
 - `tests/test_collector.py`
-  - small-scale mock collector flow (3 devices)
+  - 小規模 mock collector 流程（3 台設備）
 - `tests/test_mqtt.py`
-  - MQTT envelope and collector-name mapping
+  - MQTT envelope 與 collector 名稱映射
 
-## Notes
+## 備註
 
-- Main acceptance is now real vEOS integration (not fake 30-device seeding).
-- To validate against real devices, use `scripts/bootstrap_real_veos.py` and follow root-level `DEMO_TESTCASES.md`.
+- 目前主要驗收基準是「真實 vEOS 整合」，而非舊的 30 台假設備播種流程。
+- 若要用真實設備驗證，請使用 `scripts/bootstrap_real_veos.py`，並搭配根目錄 `DEMO_TESTCASES.md`。
+

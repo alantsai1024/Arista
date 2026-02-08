@@ -1,59 +1,60 @@
-# Database Migration Guide
+﻿# 資料庫遷移指南
 
-## Creating Initial Migration
+## 建立初始遷移
 
-After updating the models, create a new migration:
+更新模型後，建立新的 migration：
 
 ```bash
-# In the backend directory
+# 在 backend 目錄執行
 alembic revision --autogenerate -m "Initial migration with UUID and encrypted passwords"
 ```
 
-This will create a migration file in `alembic/versions/`.
+執行後會在 `alembic/versions/` 產生 migration 檔案。
 
-## Review Migration
+## 檢查遷移
 
-Always review the generated migration file before applying:
+套用前務必先檢視自動產生的 migration 內容：
 
 ```bash
-# View the migration file
+# 檢視 migration 檔案
 cat alembic/versions/<migration_file>.py
 ```
 
-## Apply Migration
+## 套用遷移
 
 ```bash
-# Apply all pending migrations
+# 套用所有待執行 migration
 alembic upgrade head
 
-# Or in Docker
+# 或使用 Docker
 docker compose exec backend alembic upgrade head
 ```
 
-## Rollback Migration
+## 回滾遷移
 
 ```bash
-# Rollback one step
+# 回滾一步
 alembic downgrade -1
 
-# Rollback to specific revision
+# 回滾到指定版本
 alembic downgrade <revision_id>
 ```
 
-## Manual Migration Steps
+## 手動遷移步驟
 
-If you need to migrate existing data:
+若要搬移既有資料，建議流程：
 
-1. **Backup existing database**
-2. **Create migration script** with data transformation
-3. **Test on staging** first
-4. **Apply to production**
+1. **先備份目前資料庫**
+2. **撰寫含資料轉換的 migration 腳本**
+3. **先在 staging 測試**
+4. **再套用到 production**
 
-## Migration Checklist
+## 遷移檢查清單
 
-- [ ] Review generated migration
-- [ ] Test migration on development database
-- [ ] Backup production database
-- [ ] Apply migration during maintenance window
-- [ ] Verify data integrity after migration
-- [ ] Update application code if needed
+- [ ] 檢查自動產生的 migration 內容
+- [ ] 在開發資料庫測試 migration
+- [ ] 備份正式資料庫
+- [ ] 在維護時段套用 migration
+- [ ] 套用後確認資料完整性
+- [ ] 如有需要同步更新應用程式程式碼
+

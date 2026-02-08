@@ -1,4 +1,4 @@
-# Arista eAPI → MQTT Agent 設計說明
+﻿# Arista eAPI → MQTT 代理程式設計說明
 
 **整體概覽**
 此代理以輪詢方式向 Arista EOS eAPI 送出 CLI 指令，取得原始回傳資料後，序列化成 JSON 並發布到 MQTT。
@@ -30,7 +30,7 @@ MQTT broker -> subscribers
 | `dispatcher_mqtt.py` | MQTT 連線、JSON 序列化與發布 |
 | `config.py` | Collector 定義與 topic 配置 |
 
-**Payload Schema**
+**Payload 結構**
 發布到 MQTT 的 JSON 結構欄位說明：
 - `device`：設備識別（通常是 EOS 主機名或 IP）
 - `collector`：collector 名稱
@@ -55,3 +55,4 @@ Topic 由 `config.py` 中 `COLLECTORS` 的 `topic` 欄位定義，內建 topics�
 - 新增 collector：修改 `config.py` 的 `COLLECTORS`。
 - 新增 dispatcher：可擴充 `dispatcher_mqtt.py` 或新增其他發布模組（例如 Kafka）。
 - 強化安全：加入 TLS 驗證、憑證管理或更嚴格的認證流程。
+
