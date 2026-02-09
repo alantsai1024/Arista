@@ -5,21 +5,29 @@
 - `192.168.56.3`
 - `192.168.56.4`
 
-帳密：`admin/0000`。
-
 ## 準備
 
 Docker：
 ```bash
+cp .env.example .env
+cp secrets/veos_credentials.example.json secrets/veos_credentials.json
 docker compose up -d
 docker compose exec backend python scripts/bootstrap_real_veos.py
 ```
 
 本機：
 ```powershell
+Copy-Item .\.env.example .\.env
+Copy-Item .\secrets\veos_credentials.example.json .\secrets\veos_credentials.json
 cd backend
+$env:VEOS_TARGETS="192.168.56.2,192.168.56.3,192.168.56.4"
+$env:VEOS_CREDENTIALS_FILE="..\secrets\veos_credentials.json"
 python scripts/bootstrap_real_veos.py
 ```
+
+注意：
+- credentials 檔需使用 IP -> `{username,password}` 的 JSON 對應。
+- `VEOS_TARGETS` 必須和 JSON key 完全一致。
 
 ## TC-01：Bootstrap 僅保留目標設備
 

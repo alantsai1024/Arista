@@ -30,6 +30,7 @@
 - 優先小步變更，避免一次大改且難以回溯。
 - 不修改與本任務無關的檔案。
 - 不提交密碼、金鑰、憑證或真實敏感資訊。
+- vEOS bootstrap 帳密請使用 `AristaConnector/secrets/veos_credentials.json`（由 `veos_credentials.example.json` 複製），不要使用 `VEOS_USERNAME/VEOS_PASSWORD` 舊變數。
 - 若變更 API 行為或關鍵流程，必須同步更新對應文件。
 
 ## 測試與驗收規範

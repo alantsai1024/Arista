@@ -9,7 +9,7 @@
 ## 1. 先確認服務已啟動
 
 ```bash
-cd /home/alan/newArista/AristaConnector
+cd AristaConnector
 docker compose up -d
 docker compose ps
 ```
@@ -60,12 +60,29 @@ curl -s http://localhost:8000/devices/<device_id>/status | jq .
 
 此方法會先對目標 IP 做 eAPI probe，再 upsert 到 `/devices`。
 
+先準備逐機帳密檔：
+
 ```bash
-cd /home/alan/newArista/AristaConnector
+cp .env.example .env
+cp secrets/veos_credentials.example.json secrets/veos_credentials.json
+```
+
+`secrets/veos_credentials.json` 範例：
+
+```json
+{
+  "192.168.56.2": { "username": "admin", "password": "replace-me" },
+  "192.168.56.3": { "username": "ops", "password": "replace-me" },
+  "192.168.56.4": { "username": "netops", "password": "replace-me" },
+  "192.168.56.10": { "username": "admin", "password": "replace-me" }
+}
+```
+
+```bash
+cd AristaConnector
 docker compose exec backend python scripts/bootstrap_real_veos.py \
   --targets "192.168.56.2,192.168.56.3,192.168.56.4,192.168.56.10" \
-  --username admin \
-  --password 0000 \
+  --credentials-file /run/secrets/veos_credentials.json \
   --port 443 \
   --interval-sec 10
 ```
@@ -77,6 +94,10 @@ docker compose exec backend python scripts/bootstrap_real_veos.py \
 ```
 
 可選值：`keep`、`disable`、`delete`。
+
+注意：
+- 不再支援 `--username`、`--password`。
+- `VEOS_TARGETS` 與 credentials JSON key 必須完全一致，且不得有多餘項目。
 
 ## 4. 調整既有設備（IP/帳密/輪詢間隔/啟用狀態）
 

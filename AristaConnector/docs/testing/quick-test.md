@@ -3,6 +3,8 @@
 ## 1. 啟動服務
 
 ```bash
+cp .env.example .env
+cp secrets/veos_credentials.example.json secrets/veos_credentials.json
 docker compose up -d
 docker compose ps
 ```
@@ -18,6 +20,10 @@ docker compose exec backend python scripts/bootstrap_real_veos.py
 - 詢問如何處理非目標設備（`delete/disable/keep`）
 - 對目標設備執行 upsert
 - 逐台執行 test-connection
+
+注意：
+- 不支援 `VEOS_USERNAME` / `VEOS_PASSWORD` 舊變數。
+- `VEOS_TARGETS` 必須和 `secrets/veos_credentials.json` 的 IP key 完全一致。
 
 ## 3. 驗證 API
 

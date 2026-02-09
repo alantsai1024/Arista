@@ -18,6 +18,8 @@ MQTT topic 訂閱輔助腳本。
 
 目前專案改用真實 vEOS 上線流程：
 ```bash
+cp .env.example .env
+cp secrets/veos_credentials.example.json secrets/veos_credentials.json
 docker compose exec backend python scripts/bootstrap_real_veos.py
 # 或
 cd backend && python scripts/bootstrap_real_veos.py

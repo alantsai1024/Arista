@@ -11,6 +11,11 @@
 ## 快速開始（主專案）
 ```bash
 cd AristaConnector
+cp .env.example .env
+cp secrets/veos_credentials.example.json secrets/veos_credentials.json
+cd frontend
+npm install
+cd ..
 docker compose up -d
 docker compose exec backend python scripts/bootstrap_real_veos.py
 ```
@@ -41,14 +46,14 @@ cd AristaConnector\backend
 python collector.py
 ```
 
-詳細步驟請見：`AristaConnector/LOCAL_WINDOWS_SETUP.md`
+詳細步驟請見：`AristaConnector/docs/setup/local-windows-setup.md`
 
 ## 文件導覽
 - [主專案總覽](AristaConnector/README.md)
 - [主專案快速啟動](AristaConnector/QUICKSTART.md)
-- [Windows 本機安裝流程](AristaConnector/LOCAL_WINDOWS_SETUP.md)
-- [驗收與測試案例](AristaConnector/DEMO_TESTCASES.md)
+- [Windows 本機安裝流程](AristaConnector/docs/setup/local-windows-setup.md)
+- [驗收與測試案例](AristaConnector/docs/testing/demo-testcases.md)
 
 ## 開發建議
 - 優先以 `AristaConnector/` 的文件與流程為準。
-- 敏感設定請放在 `.env`（由 `.env.example` 複製），避免帳密硬編碼。
+- 一般設定放在 `.env`（由 `.env.example` 複製）；vEOS 帳密請放在 `AristaConnector/secrets/veos_credentials.json`，避免帳密硬編碼與誤提交。
