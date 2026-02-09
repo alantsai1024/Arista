@@ -163,6 +163,12 @@ def build_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="When set, cleanup is non-interactive for non-target devices",
     )
+    parser.add_argument(
+        "--probe-failure-policy",
+        choices=["continue", "abort"],
+        default="continue",
+        help="Behavior when one or more target probes fail",
+    )
     if has_legacy_cli_args(argv):
         parser.error(
             "Legacy CLI args --username/--password are not supported. "
@@ -314,20 +320,28 @@ def main(argv: list[str] | None = None) -> int:
     print("")
 
     hostnames_by_ip: dict[str, str] = {}
-    probe_failed = False
+    probe_successes: list[tuple[str, str]] = []
+    probe_failures: list[tuple[str, str]] = []
     for ip in targets:
         username, password = get_credentials_for_target(ip, credentials_by_ip)
         ok, hostname, message = eapi_probe(ip, args.port, username, password)
         if ok:
-            hostnames_by_ip[ip] = hostname or ip
-            print(f"[OK] eAPI probe {ip} -> hostname={hostnames_by_ip[ip]}")
+            resolved_hostname = hostname or ip
+            hostnames_by_ip[ip] = resolved_hostname
+            probe_successes.append((ip, resolved_hostname))
+            print(f"[OK] eAPI probe {ip} -> hostname={resolved_hostname}")
         else:
-            probe_failed = True
+            hostnames_by_ip[ip] = ip
+            probe_failures.append((ip, message))
             print(f"[FAIL] eAPI probe {ip} -> {message}")
 
-    if probe_failed:
-        print("Abort: one or more target devices failed eAPI probe.")
-        return 1
+    if probe_failures:
+        failed_ips = ", ".join(ip for ip, _ in probe_failures)
+        print(f"Probe failures ({len(probe_failures)}): {failed_ips}")
+        if args.probe_failure_policy == "abort":
+            print("Abort: one or more target devices failed eAPI probe (policy=abort).")
+            return 1
+        print("Continue: failed probes will still be upserted using IP as hostname fallback.")
 
     try:
         devices = api_get_devices(args.api_url)
@@ -382,6 +396,18 @@ def main(argv: list[str] | None = None) -> int:
     final_devices = api_get_devices(args.api_url)
     for d in final_devices:
         print(f"- {d.get('hostname') or '-'} {d['ip']} enabled={d['enabled']} id={d['id']}")
+
+    print("")
+    print("Probe summary:")
+    print(f"- Success: {len(probe_successes)}")
+    if probe_successes:
+        for ip, hostname in probe_successes:
+            print(f"  * {ip} -> {hostname}")
+    print(f"- Failed: {len(probe_failures)}")
+    if probe_failures:
+        for ip, reason in probe_failures:
+            print(f"  * {ip} -> {reason}")
+        print("WARNING: Some targets were unreachable, but bootstrap continued (policy=continue).")
 
     return 0
 

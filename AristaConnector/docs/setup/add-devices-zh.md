@@ -84,7 +84,8 @@ docker compose exec backend python scripts/bootstrap_real_veos.py \
   --targets "192.168.56.2,192.168.56.3,192.168.56.4,192.168.56.10" \
   --credentials-file /run/secrets/veos_credentials.json \
   --port 443 \
-  --interval-sec 10
+  --interval-sec 10 \
+  --probe-failure-policy continue
 ```
 
 不想互動式詢問時可加上：
@@ -94,6 +95,10 @@ docker compose exec backend python scripts/bootstrap_real_veos.py \
 ```
 
 可選值：`keep`、`disable`、`delete`。
+
+probe 失敗策略：
+- `continue`（預設）：部分設備離線時仍繼續 upsert，其餘正常設備可直接上線。
+- `abort`：任一目標 probe 失敗即中止（舊行為）。
 
 注意：
 - 不再支援 `--username`、`--password`。
@@ -142,6 +147,13 @@ curl -s http://localhost:8000/health/fleet | jq .
 curl -s http://localhost:8000/devices/<device_id>/events | jq .
 ```
 
+### 5.4 前端告警驗證（離線場景）
+
+當有設備離線或 API 暫時異常時，`/fleet` 應維持可用並顯示「管理者告警」：
+- 其他正常設備仍可顯示。
+- 告警區會列出離線/降級/未知設備數。
+- 若 `/health/fleet` 或 `/devices` 任一路徑失敗，會顯示資料來源警告。
+
 ## 6. 常見問題與排查
 
 | 問題 | 常見原因 | 建議處理 |
@@ -150,6 +162,7 @@ curl -s http://localhost:8000/devices/<device_id>/events | jq .
 | 看不到 MQTT 訊息 | MQTT 未連線或訂閱 topic 不對 | 檢查 `arista-mqtt` 狀態，訂閱 `arista/default/+/state` 與 `arista/default/+/telemetry/+` |
 | `Device with this IP address already exists` | 同 IP 已存在 | 用 `PATCH /devices/{id}` 更新，或刪除舊設備後重建 |
 | 設備常被判斷離線 | `interval_sec` 設太長 | 建議先用 `10~30` 秒；若要更長，需同步調整健康判斷策略 |
+| 有一台離線時覺得畫面卡住 | 單一路徑 API 或設備狀態請求阻塞 | 目前 `/fleet` 已改為 fail-open：先顯示可用資料，並在告警區提示異常來源 |
 
 ## 7. 推薦操作順序
 

@@ -152,7 +152,50 @@ def test_main_uses_per_target_credentials_for_probe_and_upsert(monkeypatch, tmp_
     assert upsert_seen["credentials_by_ip"] == creds_payload
 
 
-def test_main_probe_failure_aborts_before_upsert(monkeypatch, tmp_path):
+def test_main_probe_failure_continues_upsert_by_default(monkeypatch, tmp_path):
+    path = write_credentials_file(
+        tmp_path,
+        {
+            "192.168.56.2": {"username": "admin", "password": "pw1"},
+            "192.168.56.3": {"username": "ops", "password": "pw2"},
+        },
+    )
+
+    def fake_probe(ip, port, username, password, timeout=10.0):
+        if ip == "192.168.56.3":
+            return False, None, "auth failed"
+        return True, f"host-{ip}", "ok"
+
+    def fake_api_get_devices(_api_url):
+        return []
+
+    upsert_seen = {"called": False, "hostnames_by_ip": {}}
+
+    def fake_upsert(_api_url, _existing_by_ip, hostnames_by_ip, **_kwargs):
+        upsert_seen["called"] = True
+        upsert_seen["hostnames_by_ip"] = hostnames_by_ip
+        return []
+
+    monkeypatch.setattr(bootstrap, "eapi_probe", fake_probe)
+    monkeypatch.setattr(bootstrap, "api_get_devices", fake_api_get_devices)
+    monkeypatch.setattr(bootstrap, "upsert_targets", fake_upsert)
+
+    rc = bootstrap.main(
+        [
+            "--targets",
+            "192.168.56.2,192.168.56.3",
+            "--credentials-file",
+            path,
+        ]
+    )
+
+    assert rc == 0
+    assert upsert_seen["called"] is True
+    assert upsert_seen["hostnames_by_ip"]["192.168.56.2"] == "host-192.168.56.2"
+    assert upsert_seen["hostnames_by_ip"]["192.168.56.3"] == "192.168.56.3"
+
+
+def test_main_probe_failure_aborts_when_policy_abort(monkeypatch, tmp_path):
     path = write_credentials_file(
         tmp_path,
         {
@@ -167,17 +210,11 @@ def test_main_probe_failure_aborts_before_upsert(monkeypatch, tmp_path):
         return True, f"host-{ip}", "ok"
 
     def fail_if_called(*_args, **_kwargs):
-        pytest.fail("Should not call API cleanup/upsert when probe fails")
-
-    upsert_called = {"value": False}
-
-    def fake_upsert(*_args, **_kwargs):
-        upsert_called["value"] = True
-        return []
+        pytest.fail("Should not call API cleanup/upsert when probe policy is abort")
 
     monkeypatch.setattr(bootstrap, "eapi_probe", fake_probe)
     monkeypatch.setattr(bootstrap, "api_get_devices", fail_if_called)
-    monkeypatch.setattr(bootstrap, "upsert_targets", fake_upsert)
+    monkeypatch.setattr(bootstrap, "upsert_targets", fail_if_called)
 
     rc = bootstrap.main(
         [
@@ -185,8 +222,9 @@ def test_main_probe_failure_aborts_before_upsert(monkeypatch, tmp_path):
             "192.168.56.2,192.168.56.3",
             "--credentials-file",
             path,
+            "--probe-failure-policy",
+            "abort",
         ]
     )
 
     assert rc == 1
-    assert upsert_called["value"] is False

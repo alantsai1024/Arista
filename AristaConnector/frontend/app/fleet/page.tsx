@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const FETCH_TIMEOUT_MS = 8000
+const KNOWN_STATUSES = new Set(['online', 'degraded', 'offline'])
 
 interface DeviceStatus {
   device_id: string
@@ -46,6 +48,49 @@ interface Device {
   updated_at: string | null
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(input, { signal: controller.signal })
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+function normalizeError(err: unknown): string {
+  if (err instanceof DOMException && err.name === 'AbortError') {
+    return `timeout after ${FETCH_TIMEOUT_MS}ms`
+  }
+  if (err instanceof Error) {
+    return err.message
+  }
+  return String(err)
+}
+
+function buildUnknownHealth(devices: Device[]): FleetHealth {
+  return {
+    total_devices: devices.length,
+    online_devices: 0,
+    offline_devices: devices.length,
+    degraded_devices: 0,
+    devices: devices.map((device) => ({
+      device_id: device.id,
+      status: 'unknown',
+      last_seen: null,
+      online: false,
+      recent_stats: {
+        total_events_last_hour: 0,
+        events_by_type: {},
+        last_event_at: null,
+        latency_ms: null,
+      },
+    })),
+    top_latency_devices: [],
+  }
+}
+
 export default function FleetPage() {
   const router = useRouter()
   const [health, setHealth] = useState<FleetHealth | null>(null)
@@ -54,51 +99,67 @@ export default function FleetPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [deviceRankings, setDeviceRankings] = useState<Map<string, number>>(new Map())
   const [highlightedDevices, setHighlightedDevices] = useState<Set<string>>(new Set())
+  const [sourceWarnings, setSourceWarnings] = useState<string[]>([])
+  const [fatalError, setFatalError] = useState<string | null>(null)
 
   const fetchData = async () => {
     try {
       setRefreshing(true)
-      const [healthRes, devicesRes] = await Promise.all([
-        fetch(`${API_URL}/health/fleet`),
-        fetch(`${API_URL}/devices`)
+      setFatalError(null)
+
+      const [healthResult, devicesResult] = await Promise.allSettled([
+        fetchWithTimeout(`${API_URL}/health/fleet`),
+        fetchWithTimeout(`${API_URL}/devices`)
       ])
-      
-      if (healthRes.ok && devicesRes.ok) {
-        const healthData: FleetHealth = await healthRes.json()
-        const devicesData = await devicesRes.json()
 
-        // Older /health/fleet payload may not include recent_stats per device.
-        // Fallback to /devices/{id}/status so table metrics remain accurate.
-        const needsStatusFallback = healthData.devices.some((d) => !d.recent_stats)
-        let mergedStatuses = healthData.devices
+      const warnings: string[] = []
+      let nextHealth: FleetHealth | null = null
+      let nextDevices: Device[] | null = null
 
-        if (needsStatusFallback && Array.isArray(devicesData) && devicesData.length > 0) {
-          const statusResults = await Promise.allSettled(
-            devicesData.map(async (device: Device) => {
-              const res = await fetch(`${API_URL}/devices/${device.id}/status`)
-              if (!res.ok) throw new Error(`status fetch failed: ${device.id}`)
-              const status: DeviceStatus = await res.json()
-              return status
-            })
-          )
-
-          const statusMap = new Map<string, DeviceStatus>()
-          statusResults.forEach((result) => {
-            if (result.status === 'fulfilled') {
-              statusMap.set(result.value.device_id, result.value)
-            }
-          })
-
-          mergedStatuses = healthData.devices.map((status) => statusMap.get(status.device_id) ?? status)
+      if (healthResult.status === 'fulfilled') {
+        if (healthResult.value.ok) {
+          nextHealth = await healthResult.value.json()
+        } else {
+          warnings.push(`/health/fleet 回應異常 (HTTP ${healthResult.value.status})`)
         }
-        
-        // Check for ranking changes
+      } else {
+        warnings.push(`/health/fleet 請求失敗 (${normalizeError(healthResult.reason)})`)
+      }
+
+      if (devicesResult.status === 'fulfilled') {
+        if (devicesResult.value.ok) {
+          nextDevices = await devicesResult.value.json()
+        } else {
+          warnings.push(`/devices 回應異常 (HTTP ${devicesResult.value.status})`)
+        }
+      } else {
+        warnings.push(`/devices 請求失敗 (${normalizeError(devicesResult.reason)})`)
+      }
+
+      if (nextDevices) {
+        setDevices(nextDevices)
+      }
+
+      let resolvedHealth: FleetHealth | null = null
+      if (nextHealth) {
+        resolvedHealth = nextHealth
+        setHealth(nextHealth)
+      } else if (nextDevices) {
+        resolvedHealth = buildUnknownHealth(nextDevices)
+        setHealth(resolvedHealth)
+      }
+
+      if (!resolvedHealth && !health && (!nextDevices || nextDevices.length === 0) && devices.length === 0) {
+        setFatalError('目前無法取得機群資料，請稍後重試。')
+      }
+
+      const statusesForRanking = resolvedHealth?.devices
+      if (statusesForRanking) {
         const newRankings = new Map<string, number>()
-        mergedStatuses.forEach((d: DeviceStatus, index: number) => {
+        statusesForRanking.forEach((d: DeviceStatus, index: number) => {
           newRankings.set(d.device_id, index)
         })
-        
-        // Find devices that moved
+
         const moved = new Set<string>()
         deviceRankings.forEach((oldRank, deviceId) => {
           const newRank = newRankings.get(deviceId)
@@ -106,21 +167,19 @@ export default function FleetPage() {
             moved.add(deviceId)
           }
         })
-        
+
         if (moved.size > 0) {
           setHighlightedDevices(moved)
-          setTimeout(() => setHighlightedDevices(new Set()), 2000) // Highlight for 2 seconds
+          setTimeout(() => setHighlightedDevices(new Set()), 2000)
         }
-        
+
         setDeviceRankings(newRankings)
-        setHealth({
-          ...healthData,
-          devices: mergedStatuses,
-        })
-        setDevices(devicesData)
       }
+
+      setSourceWarnings(warnings)
     } catch (error) {
       console.error('Failed to fetch data:', error)
+      setSourceWarnings([`資料刷新失敗 (${normalizeError(error)})`])
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -135,10 +194,14 @@ export default function FleetPage() {
 
   // Create device map for quick lookup
   const deviceMap = new Map(devices.map(d => [d.id, d]))
+  const healthDevices = health?.devices ?? []
+  const degradedDevices = healthDevices.filter((item) => item.status === 'degraded')
+  const offlineDevices = healthDevices.filter((item) => item.status === 'offline')
+  const unknownDevices = healthDevices.filter((item) => !KNOWN_STATUSES.has(item.status))
+  const hasAnomalies = degradedDevices.length > 0 || offlineDevices.length > 0 || unknownDevices.length > 0
 
   // Calculate events per 10s (approximate from last hour)
-  const getEventsPer10s = (deviceId: string): number | null => {
-    const status = health?.devices.find(d => d.device_id === deviceId)
+  const getEventsPer10s = (status: DeviceStatus): number | null => {
     const totalEvents = status?.recent_stats?.total_events_last_hour
     if (typeof totalEvents !== 'number') return null
     // 3600 seconds/hour -> events per 10 seconds = events_per_hour / 360
@@ -202,6 +265,45 @@ export default function FleetPage() {
           </div>
         </div>
 
+        {(sourceWarnings.length > 0 || hasAnomalies) && (
+          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="text-sm font-semibold text-amber-900 mb-2">管理者告警</div>
+            {sourceWarnings.length > 0 && (
+              <div className="text-sm text-amber-800 mb-2">
+                <div className="font-medium">資料來源警告：</div>
+                <ul className="list-disc pl-5">
+                  {sourceWarnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {hasAnomalies && (
+              <div className="text-sm text-amber-800">
+                <div className="font-medium">
+                  異常設備：離線 {offlineDevices.length}、降級 {degradedDevices.length}、未知 {unknownDevices.length}
+                </div>
+                <div className="mt-2 space-y-1">
+                  {healthDevices
+                    .filter((item) => item.status !== 'online')
+                    .slice(0, 8)
+                    .map((item) => {
+                      const device = deviceMap.get(item.device_id)
+                      const deviceLabel = device?.hostname || item.device_id
+                      const ipLabel = device?.ip || 'N/A'
+                      const anomalyLastSeen = item.last_seen ?? item.recent_stats?.last_event_at ?? null
+                      return (
+                        <div key={item.device_id} className="font-mono text-xs">
+                          {deviceLabel} ({ipLabel}) - {item.status} - last_seen: {formatLastSeen(anomalyLastSeen)}
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Summary Cards */}
         {health && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -251,13 +353,26 @@ export default function FleetPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {health?.devices.map((deviceStatus) => {
+                {fatalError && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-red-600">
+                      {fatalError}
+                    </td>
+                  </tr>
+                )}
+                {!fatalError && healthDevices.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
+                      尚無可顯示的設備資料
+                    </td>
+                  </tr>
+                )}
+                {!fatalError && healthDevices.map((deviceStatus) => {
                   const device = deviceMap.get(deviceStatus.device_id)
-                  if (!device) return null
                   
                   const isHighlighted = highlightedDevices.has(deviceStatus.device_id)
                   const latency = deviceStatus.recent_stats?.latency_ms
-                  const eventsPer10s = getEventsPer10s(deviceStatus.device_id)
+                  const eventsPer10s = getEventsPer10s(deviceStatus)
                   const lastSeen = deviceStatus.last_seen ?? deviceStatus.recent_stats?.last_event_at ?? null
                   
                   return (
@@ -266,15 +381,19 @@ export default function FleetPage() {
                       className={`hover:bg-gray-50 cursor-pointer transition-all duration-300 ${
                         isHighlighted ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''
                       }`}
-                      onClick={() => router.push(`/devices/${deviceStatus.device_id}`)}
+                      onClick={() => {
+                        if (device) {
+                          router.push(`/devices/${deviceStatus.device_id}`)
+                        }
+                      }}
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">
-                          {device.hostname || 'N/A'}
+                          {device?.hostname || deviceStatus.device_id}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{device.ip}</div>
+                        <div className="text-sm text-gray-900">{device?.ip || 'N/A'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full border ${getStatusColor(deviceStatus.status)}`}>

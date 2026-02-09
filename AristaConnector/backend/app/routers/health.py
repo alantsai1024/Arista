@@ -1,14 +1,13 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
 from datetime import datetime, timedelta
 
 from app.database import get_db
 from app.models import Device
 from app.schemas import FleetHealth, DeviceStatus, DeviceLatency
 from app.services.redis_client import get_redis_client
-from app.dao.events import get_event_stats
+from app.dao.events import get_bulk_event_stats
 
 router = APIRouter()
 
@@ -18,31 +17,39 @@ async def get_fleet_health(db: AsyncSession = Depends(get_db)):
     """Get health status of all devices with summary counts and top latency devices"""
     result = await db.execute(select(Device))
     devices = result.scalars().all()
+    device_ids = [device.id for device in devices]
 
     redis_client = await get_redis_client()
+    since = datetime.now() - timedelta(hours=1)
+    event_stats_map = await get_bulk_event_stats(db, device_ids, since)
+
+    last_seen_keys = [f"device:{device_id}:last_seen" for device_id in device_ids]
+    status_keys = [f"device:{device_id}:status" for device_id in device_ids]
+    latency_keys = [f"device:{device_id}:latency_ms" for device_id in device_ids]
+
+    last_seen_values = await redis_client.mget(*last_seen_keys) if last_seen_keys else []
+    status_values = await redis_client.mget(*status_keys) if status_keys else []
+    latency_values = await redis_client.mget(*latency_keys) if latency_keys else []
+
     device_statuses = []
     online_count = 0
     offline_count = 0
     degraded_count = 0
     latency_devices = []
 
-    for device in devices:
-        last_seen_key = f"device:{device.id}:last_seen"
-        status_key = f"device:{device.id}:status"
-        latency_key = f"device:{device.id}:latency_ms"
-
-        last_seen_str = await redis_client.get(last_seen_key)
-        status = await redis_client.get(status_key)
-        latency_str = await redis_client.get(latency_key)
+    for idx, device in enumerate(devices):
+        last_seen_raw = last_seen_values[idx] if idx < len(last_seen_values) else None
+        status_raw = status_values[idx] if idx < len(status_values) else None
+        latency_raw = latency_values[idx] if idx < len(latency_values) else None
 
         last_seen = None
-        if last_seen_str:
+        if last_seen_raw:
             try:
-                last_seen = datetime.fromisoformat(last_seen_str.decode())
-            except:
+                last_seen = datetime.fromisoformat(last_seen_raw.decode())
+            except Exception:
                 pass
 
-        status_str = status.decode() if status else "unknown"
+        status_str = status_raw.decode() if status_raw else "unknown"
         
         # Determine online status (last_seen within 30s)
         online = False
@@ -58,25 +65,38 @@ async def get_fleet_health(db: AsyncSession = Depends(get_db)):
         else:
             offline_count += 1
 
+        latency_ms = None
+        if latency_raw:
+            try:
+                latency_ms = float(latency_raw.decode())
+            except Exception:
+                latency_ms = None
+
+        stats = event_stats_map.get(device.id, {})
+        last_event_at = stats.get("last_event_at")
+        recent_stats = {
+            "total_events_last_hour": stats.get("total_events", 0),
+            "events_by_type": stats.get("events_by_type", {}),
+            "last_event_at": last_event_at.isoformat() if last_event_at else None,
+            "latency_ms": latency_ms,
+        }
+
         device_statuses.append(DeviceStatus(
             device_id=device.id,
             status=status_str,
             last_seen=last_seen,
-            online=online
+            online=online,
+            recent_stats=recent_stats,
         ))
         
         # Collect latency data
-        if latency_str:
-            try:
-                latency_ms = float(latency_str.decode())
-                latency_devices.append(DeviceLatency(
-                    device_id=device.id,
-                    hostname=device.hostname,
-                    ip=device.ip,
-                    latency_ms=latency_ms
-                ))
-            except:
-                pass
+        if latency_ms is not None:
+            latency_devices.append(DeviceLatency(
+                device_id=device.id,
+                hostname=device.hostname,
+                ip=device.ip,
+                latency_ms=latency_ms
+            ))
 
     # Sort by latency and get top 5
     latency_devices.sort(key=lambda x: x.latency_ms or float('inf'), reverse=True)

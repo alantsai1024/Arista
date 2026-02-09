@@ -28,6 +28,7 @@ python scripts/bootstrap_real_veos.py
 注意：
 - credentials 檔需使用 IP -> `{username,password}` 的 JSON 對應。
 - `VEOS_TARGETS` 必須和 JSON key 完全一致。
+- bootstrap 預設 `--probe-failure-policy continue`，當部分設備離線時仍會繼續 upsert 其餘設備並輸出失敗摘要。
 
 ## TC-01：Bootstrap 僅保留目標設備
 
@@ -115,3 +116,19 @@ ls -lah backend/runtime/raw backend/runtime/raw_ref
 
 預期：
 - 有依 collector 產生的 raw 檔案與中繼參照資訊。
+
+## TC-07：單一 vEOS 離線時仍可顯示其他設備
+
+步驟：
+1. 關閉其中一台 vEOS（例如 `192.168.56.4`）。
+2. 執行：
+```bash
+docker compose exec backend python scripts/bootstrap_real_veos.py --probe-failure-policy continue
+```
+3. 開啟 `http://localhost:3000/fleet`。
+
+預期：
+- bootstrap 不會因單台失敗而整批中止，並會輸出 probe 失敗摘要。
+- Fleet 頁面仍可顯示其他正常設備，不會整頁卡住。
+- Fleet 顯示「管理者告警」，包含離線/降級/未知設備統計與異常清單。
+- `curl http://localhost:8000/health/fleet` 的每台 `devices[]` 都包含 `recent_stats` 欄位。

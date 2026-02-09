@@ -109,3 +109,49 @@ async def get_event_stats(
         "events_by_type": by_type,
         "last_event_at": events[0].created_at if events else None
     }
+
+
+async def get_bulk_event_stats(
+    db: AsyncSession,
+    device_ids: list[UUID],
+    since: Optional[datetime] = None,
+) -> dict[UUID, dict]:
+    """
+    Get event statistics for multiple devices in one query.
+
+    Returns:
+        Mapping of device_id -> {
+            total_events: int,
+            events_by_type: dict[str, int],
+            last_event_at: datetime | None
+        }
+    """
+    if not device_ids:
+        return {}
+
+    query = select(Event.device_id, Event.event_type, Event.created_at).where(Event.device_id.in_(device_ids))
+    if since:
+        query = query.where(Event.created_at >= since)
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    stats: dict[UUID, dict] = {}
+    for device_id, event_type, created_at in rows:
+        device_stats = stats.setdefault(
+            device_id,
+            {
+                "total_events": 0,
+                "events_by_type": {},
+                "last_event_at": None,
+            },
+        )
+        device_stats["total_events"] += 1
+        by_type = device_stats["events_by_type"]
+        by_type[event_type] = by_type.get(event_type, 0) + 1
+
+        current_last = device_stats["last_event_at"]
+        if current_last is None or created_at > current_last:
+            device_stats["last_event_at"] = created_at
+
+    return stats

@@ -105,7 +105,7 @@ test('fleet page renders and updates', async ({ page }) => {
   // Verify summary cards are rendered
   await expect(page.locator('text=總設備數')).toBeVisible();
   await expect(page.locator('text=線上')).toBeVisible();
-  await expect(page.locator('text=離線')).toBeVisible();
+  await expect(page.getByText('離線', { exact: true })).toBeVisible();
 
   // Verify table is rendered
   const table = page.locator('table');
@@ -120,9 +120,9 @@ test('fleet page renders and updates', async ({ page }) => {
   await expect(page.locator('text=事件/10秒')).toBeVisible();
 
   // Verify devices are in table
-  await expect(page.locator('text=switch-01')).toBeVisible();
-  await expect(page.locator('text=switch-02')).toBeVisible();
-  await expect(page.locator('text=switch-03')).toBeVisible();
+  await expect(page.locator('table').getByText('switch-01', { exact: true })).toBeVisible();
+  await expect(page.locator('table').getByText('switch-02', { exact: true })).toBeVisible();
+  await expect(page.locator('table').getByText('switch-03', { exact: true })).toBeVisible();
 
   // Get initial values
   const initialOnlineCount = await page.locator('text=線上').locator('..').locator('text=/\\d+/').textContent();
@@ -135,6 +135,43 @@ test('fleet page renders and updates', async ({ page }) => {
   
   // Values should have changed due to mock counter
   expect(initialOnlineCount).not.toBe(updatedOnlineCount);
+});
+
+test('fleet page stays usable when health API fails', async ({ page }) => {
+  await page.unroute('**/health/fleet');
+  await page.route('**/health/fleet', async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'service unavailable' }),
+    });
+  });
+
+  await page.goto('/fleet');
+
+  await expect(page.locator('h1')).toContainText('設備機群');
+  await expect(page.locator('text=管理者告警')).toBeVisible();
+  await expect(page.getByText('/health/fleet 回應異常')).toBeVisible();
+  await expect(page.locator('table').getByText('switch-01', { exact: true })).toBeVisible();
+  await expect(page.locator('text=unknown').first()).toBeVisible();
+});
+
+test('fleet page still shows health data when devices API fails', async ({ page }) => {
+  await page.unroute('**/devices');
+  await page.route('**/devices', async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'service unavailable' }),
+    });
+  });
+
+  await page.goto('/fleet');
+
+  await expect(page.locator('text=總設備數')).toBeVisible();
+  await expect(page.locator('text=管理者告警')).toBeVisible();
+  await expect(page.getByText('/devices 回應異常')).toBeVisible();
+  await expect(page.locator('text=device-1')).toBeVisible();
 });
 
 test('fleet page table row click navigates to device detail', async ({ page }) => {

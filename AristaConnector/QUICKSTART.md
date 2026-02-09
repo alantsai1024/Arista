@@ -24,6 +24,13 @@ docker compose logs -f backend collector
 docker compose exec backend python scripts/bootstrap_real_veos.py
 ```
 
+說明：
+- 預設 `--probe-failure-policy continue`，若有離線設備會繼續 upsert 其餘設備，並在輸出摘要標示失敗目標。
+- 若需舊有 fail-fast 行為，請改用：
+```bash
+docker compose exec backend python scripts/bootstrap_real_veos.py --probe-failure-policy abort
+```
+
 5. 驗證 API：
 ```bash
 curl http://localhost:8000/devices
@@ -68,7 +75,12 @@ cd backend
 python scripts/bootstrap_real_veos.py
 ```
 
+說明：
+- 預設 `continue` 策略可讓離線設備不影響其他設備建立。
+- 需要 fail-fast 可加 `--probe-failure-policy abort`。
+
 ## 備註
 
 - `scripts/seed_30_devices.py` 已淘汰。
 - 主要驗收依據為真實 vEOS 輪詢與 API + MQTT 驗證。
+- Fleet 頁面若遇單一設備或單一路徑 API 異常，仍可顯示其餘設備，並以告警區呈現異常清單與資料來源警告。
