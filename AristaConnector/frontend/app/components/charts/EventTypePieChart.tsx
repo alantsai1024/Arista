@@ -1,5 +1,6 @@
 'use client'
 
+import { memo, useMemo } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 
 const palette = ['#2f7ed9', '#2ca26b', '#d4a82f', '#b67ed6', '#f97316', '#10b981', '#ef4444']
@@ -8,8 +9,8 @@ interface EventTypePieChartProps {
   data: Record<string, number>
 }
 
-export default function EventTypePieChart({ data }: EventTypePieChartProps) {
-  const rows = Object.entries(data).map(([name, value]) => ({ name, value }))
+function EventTypePieChart({ data }: EventTypePieChartProps) {
+  const rows = useMemo(() => Object.entries(data).map(([name, value]) => ({ name, value })), [data])
 
   if (rows.length === 0) {
     return (
@@ -29,7 +30,7 @@ export default function EventTypePieChart({ data }: EventTypePieChartProps) {
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={rows} dataKey="value" nameKey="name" innerRadius={50} outerRadius={88}>
+            <Pie data={rows} dataKey="value" nameKey="name" innerRadius={50} outerRadius={88} isAnimationActive={false}>
               {rows.map((row, index) => (
                 <Cell key={row.name} fill={palette[index % palette.length]} />
               ))}
@@ -44,3 +45,5 @@ export default function EventTypePieChart({ data }: EventTypePieChartProps) {
     </section>
   )
 }
+
+export default memo(EventTypePieChart)

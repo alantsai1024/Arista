@@ -2,7 +2,7 @@
 Data Access Object for events.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
@@ -89,25 +89,32 @@ async def get_event_stats(
     Returns:
         Dictionary with event statistics
     """
-    query = select(Event).where(Event.device_id == device_id)
-    
-    if since:
-        query = query.where(Event.created_at >= since)
-    
-    query = query.order_by(desc(Event.created_at))
+    summary_query = select(
+        func.count(Event.id),
+        func.max(Event.created_at),
+    ).where(Event.device_id == device_id)
 
-    result = await db.execute(query)
-    events = result.scalars().all()
-    
-    total = len(events)
-    by_type = {}
-    for event in events:
-        by_type[event.event_type] = by_type.get(event.event_type, 0) + 1
-    
+    grouped_query = select(
+        Event.event_type,
+        func.count(Event.id),
+    ).where(Event.device_id == device_id)
+
+    if since:
+        summary_query = summary_query.where(Event.created_at >= since)
+        grouped_query = grouped_query.where(Event.created_at >= since)
+
+    grouped_query = grouped_query.group_by(Event.event_type)
+
+    summary_result = await db.execute(summary_query)
+    total_events, last_event_at = summary_result.one()
+
+    grouped_result = await db.execute(grouped_query)
+    by_type = {event_type: int(count) for event_type, count in grouped_result.all()}
+
     return {
-        "total_events": total,
+        "total_events": int(total_events or 0),
         "events_by_type": by_type,
-        "last_event_at": events[0].created_at if events else None
+        "last_event_at": last_event_at,
     }
 
 
@@ -129,15 +136,39 @@ async def get_bulk_event_stats(
     if not device_ids:
         return {}
 
-    query = select(Event.device_id, Event.event_type, Event.created_at).where(Event.device_id.in_(device_ids))
-    if since:
-        query = query.where(Event.created_at >= since)
+    summary_query = select(
+        Event.device_id,
+        func.count(Event.id),
+        func.max(Event.created_at),
+    ).where(Event.device_id.in_(device_ids))
+    grouped_query = select(
+        Event.device_id,
+        Event.event_type,
+        func.count(Event.id),
+    ).where(Event.device_id.in_(device_ids))
 
-    result = await db.execute(query)
-    rows = result.all()
+    if since:
+        summary_query = summary_query.where(Event.created_at >= since)
+        grouped_query = grouped_query.where(Event.created_at >= since)
+
+    summary_query = summary_query.group_by(Event.device_id)
+    grouped_query = grouped_query.group_by(Event.device_id, Event.event_type)
+
+    summary_rows = (await db.execute(summary_query)).all()
+    grouped_rows = (await db.execute(grouped_query)).all()
 
     stats: dict[UUID, dict] = {}
-    for device_id, event_type, created_at in rows:
+    for device_id, total_events, last_event_at in summary_rows:
+        device_stats = stats.setdefault(
+            device_id,
+            {
+                "total_events": int(total_events or 0),
+                "events_by_type": {},
+                "last_event_at": last_event_at,
+            },
+        )
+
+    for device_id, event_type, count in grouped_rows:
         device_stats = stats.setdefault(
             device_id,
             {
@@ -146,12 +177,7 @@ async def get_bulk_event_stats(
                 "last_event_at": None,
             },
         )
-        device_stats["total_events"] += 1
         by_type = device_stats["events_by_type"]
-        by_type[event_type] = by_type.get(event_type, 0) + 1
-
-        current_last = device_stats["last_event_at"]
-        if current_last is None or created_at > current_last:
-            device_stats["last_event_at"] = created_at
+        by_type[event_type] = int(count)
 
     return stats

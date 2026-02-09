@@ -1,7 +1,25 @@
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import type { DeviceListRow, ExportPayload, TimelineEvent } from './types'
 import { buildFileTimestamp, formatDateTime, formatLatency, statusLabel } from './format'
+
+interface PdfRuntime {
+  jsPDF: (typeof import('jspdf'))['default']
+  autoTable: (typeof import('jspdf-autotable'))['default']
+}
+
+let cachedPdfRuntime: Promise<PdfRuntime> | null = null
+
+function loadPdfRuntime() {
+  if (!cachedPdfRuntime) {
+    cachedPdfRuntime = Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]).then(([jspdfModule, autoTableModule]) => ({
+      jsPDF: jspdfModule.default,
+      autoTable: autoTableModule.default,
+    }))
+  }
+  return cachedPdfRuntime
+}
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -64,7 +82,8 @@ export function exportDevicesJson(rows: DeviceListRow[]) {
   downloadJson(payload, filename)
 }
 
-export function exportDevicesPdf(rows: DeviceListRow[]) {
+export async function exportDevicesPdf(rows: DeviceListRow[]) {
+  const { jsPDF, autoTable } = await loadPdfRuntime()
   const doc = new jsPDF({ orientation: 'landscape' })
   doc.setFontSize(16)
   doc.text('Arista Devices Report', 14, 16)
@@ -113,7 +132,8 @@ export function exportEventsJson(deviceLabel: string, events: TimelineEvent[]) {
   downloadJson(payload, `arista-${deviceLabel}-events-${buildFileTimestamp()}.json`)
 }
 
-export function exportEventsPdf(deviceLabel: string, events: TimelineEvent[]) {
+export async function exportEventsPdf(deviceLabel: string, events: TimelineEvent[]) {
+  const { jsPDF, autoTable } = await loadPdfRuntime()
   const doc = new jsPDF()
   doc.setFontSize(16)
   doc.text(`Device Events - ${deviceLabel}`, 14, 16)
@@ -144,12 +164,13 @@ export function exportEventsPdf(deviceLabel: string, events: TimelineEvent[]) {
   doc.save(`arista-${deviceLabel}-events-${buildFileTimestamp()}.pdf`)
 }
 
-export function exportFleetSnapshotPdf(summary: {
+export async function exportFleetSnapshotPdf(summary: {
   total: number
   online: number
   degraded: number
   offline: number
 }, anomalies: DeviceListRow[]) {
+  const { jsPDF, autoTable } = await loadPdfRuntime()
   const doc = new jsPDF({ orientation: 'landscape' })
   doc.setFontSize(16)
   doc.text('Fleet Summary Report', 14, 16)
@@ -176,4 +197,3 @@ export function exportFleetSnapshotPdf(summary: {
 
   doc.save(`arista-fleet-${buildFileTimestamp()}.pdf`)
 }
-

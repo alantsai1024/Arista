@@ -1,16 +1,17 @@
 'use client'
 
+import { memo, useMemo } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 interface EventTypeBarChartProps {
   data: Record<string, number>
 }
 
-export default function EventTypeBarChart({ data }: EventTypeBarChartProps) {
-  const chartData = Object.entries(data).map(([type, count]) => ({
+function EventTypeBarChart({ data }: EventTypeBarChartProps) {
+  const chartData = useMemo(() => Object.entries(data).map(([type, count]) => ({
     type,
     count,
-  }))
+  })), [data])
 
   return (
     <section className="card-surface p-5">
@@ -29,10 +30,12 @@ export default function EventTypeBarChart({ data }: EventTypeBarChartProps) {
               contentStyle={{ borderRadius: '12px', border: '1px solid #dbe6f0' }}
             />
             <Legend />
-            <Bar dataKey="count" fill="#5f8fca" radius={[8, 8, 0, 0]} />
+            <Bar dataKey="count" fill="#5f8fca" radius={[8, 8, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>
     </section>
   )
 }
+
+export default memo(EventTypeBarChart)

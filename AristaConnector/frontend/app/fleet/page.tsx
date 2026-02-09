@@ -1,10 +1,12 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, RefreshCw, Router, ShieldAlert, Wifi, WifiOff } from 'lucide-react'
 import {
+  getFleetHealth,
   getFleetSnapshot,
+  listDevices,
   mergeDeviceRows,
 } from '@/app/lib/api'
 import {
@@ -21,6 +23,9 @@ import HealthTrendSparkline, { HealthTrendPoint } from '@/app/components/charts/
 import InlineAlert from '@/app/components/feedback/InlineAlert'
 import AnomalyTable from '@/app/components/tables/AnomalyTable'
 import { useToast } from '@/app/components/feedback/ToastProvider'
+
+const BACKGROUND_POLLING_INTERVAL_MS = 30_000
+const DEVICE_REFRESH_INTERVAL_MS = 60_000
 
 function buildUnknownHealth(devices: Device[]): FleetHealth {
   const statuses: DeviceStatus[] = devices.map((device) => ({
@@ -63,54 +68,222 @@ function trendLabel() {
   })
 }
 
+interface WarningMap {
+  devices?: string
+  health?: string
+  snapshot?: string
+}
+
 export default function FleetPage() {
   const router = useRouter()
   const { pushToast } = useToast()
+
+  const [devices, setDevices] = useState<Device[]>([])
   const [health, setHealth] = useState<FleetHealth | null>(null)
-  const [rows, setRows] = useState<DeviceListRow[]>([])
-  const [warnings, setWarnings] = useState<string[]>([])
+  const [warningsBySource, setWarningsBySource] = useState<WarningMap>({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null)
   const [trend, setTrend] = useState<HealthTrendPoint[]>([])
 
-  async function fetchData() {
+  const healthRef = useRef<FleetHealth | null>(null)
+  const fullSnapshotInFlightRef = useRef(false)
+  const healthPollInFlightRef = useRef(false)
+  const devicePollInFlightRef = useRef(false)
+
+  useEffect(() => {
+    healthRef.current = health
+  }, [health])
+
+  const getHealthPollingDelay = useCallback(() => (
+    typeof document !== 'undefined' && document.hidden
+      ? BACKGROUND_POLLING_INTERVAL_MS
+      : POLLING_INTERVAL_MS
+  ), [])
+
+  const applyHealth = useCallback((nextHealth: FleetHealth) => {
+    setHealth(nextHealth)
+    setLastUpdatedAt(new Date().toISOString())
+    setTrend((prev) => [
+      ...prev.slice(-23),
+      {
+        time: trendLabel(),
+        online: nextHealth.online_devices,
+        degraded: nextHealth.degraded_devices,
+        offline: nextHealth.offline_devices,
+      },
+    ])
+  }, [])
+
+  const setWarning = useCallback((key: keyof WarningMap, value: string | null) => {
+    setWarningsBySource((prev) => {
+      const next = { ...prev }
+      if (value) next[key] = value
+      else delete next[key]
+      return next
+    })
+  }, [])
+
+  const fetchFullSnapshot = useCallback(async (notifyOnError: boolean) => {
+    if (fullSnapshotInFlightRef.current) return
+    fullSnapshotInFlightRef.current = true
+
     try {
       setRefreshing(true)
       const snapshot = await getFleetSnapshot()
       const availableDevices = snapshot.devices ?? []
       const availableHealth = snapshot.health ?? buildUnknownHealth(availableDevices)
-      const mergedRows = mergeDeviceRows(availableDevices, availableHealth.devices)
 
-      setRows(mergedRows)
-      setHealth(availableHealth)
-      setWarnings(snapshot.warnings)
-      setTrend((prev) => [
-        ...prev.slice(-23),
-        {
-          time: trendLabel(),
-          online: availableHealth.online_devices,
-          degraded: availableHealth.degraded_devices,
-          offline: availableHealth.offline_devices,
-        },
-      ])
+      setDevices(availableDevices)
+      applyHealth(availableHealth)
+
+      const devicesWarning = snapshot.warnings.find((warning) => warning.includes('/devices')) ?? null
+      const healthWarning = snapshot.warnings.find((warning) => warning.includes('/health/fleet')) ?? null
+
+      setWarning('devices', devicesWarning)
+      setWarning('health', healthWarning)
+      setWarning('snapshot', null)
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知錯誤'
-      setWarnings([`機群資料讀取失敗：${message}`])
-      pushToast({ type: 'error', title: '機群資料讀取失敗', description: message })
+      setWarning('snapshot', `機群資料讀取失敗：${message}`)
+      if (notifyOnError) {
+        pushToast({ type: 'error', title: '機群資料讀取失敗', description: message })
+      }
     } finally {
+      fullSnapshotInFlightRef.current = false
       setLoading(false)
       setRefreshing(false)
     }
-  }
+  }, [applyHealth, pushToast, setWarning])
+
+  const fetchHealthOnly = useCallback(async () => {
+    if (fullSnapshotInFlightRef.current) return
+
+    try {
+      const latestHealth = await getFleetHealth()
+      applyHealth(latestHealth)
+      setWarning('health', null)
+      setWarning('snapshot', null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知錯誤'
+      setWarning('health', `/health/fleet 讀取失敗：${message}`)
+    }
+  }, [applyHealth, setWarning])
+
+  const fetchDevicesOnly = useCallback(async () => {
+    if (fullSnapshotInFlightRef.current) return
+
+    try {
+      const latestDevices = await listDevices()
+      setDevices(latestDevices)
+      setLastUpdatedAt(new Date().toISOString())
+
+      if (!healthRef.current) {
+        applyHealth(buildUnknownHealth(latestDevices))
+      }
+
+      setWarning('devices', null)
+      setWarning('snapshot', null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知錯誤'
+      setWarning('devices', `/devices 讀取失敗：${message}`)
+    }
+  }, [applyHealth, setWarning])
 
   useEffect(() => {
-    void fetchData()
-    const timer = setInterval(() => {
-      void fetchData()
-    }, POLLING_INTERVAL_MS)
-    return () => clearInterval(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void fetchFullSnapshot(true)
+  }, [fetchFullSnapshot])
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleNext = (delay: number) => {
+      if (cancelled) return
+      timer = setTimeout(() => {
+        void run()
+      }, delay)
+    }
+
+    const run = async () => {
+      if (cancelled) return
+      if (healthPollInFlightRef.current) {
+        scheduleNext(getHealthPollingDelay())
+        return
+      }
+
+      healthPollInFlightRef.current = true
+      try {
+        await fetchHealthOnly()
+      } finally {
+        healthPollInFlightRef.current = false
+        scheduleNext(getHealthPollingDelay())
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (timer) clearTimeout(timer)
+      scheduleNext(getHealthPollingDelay())
+    }
+
+    scheduleNext(getHealthPollingDelay())
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [fetchHealthOnly, getHealthPollingDelay])
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleNext = () => {
+      if (cancelled) return
+      timer = setTimeout(() => {
+        void run()
+      }, DEVICE_REFRESH_INTERVAL_MS)
+    }
+
+    const run = async () => {
+      if (cancelled) return
+      if (devicePollInFlightRef.current) {
+        scheduleNext()
+        return
+      }
+
+      devicePollInFlightRef.current = true
+      try {
+        await fetchDevicesOnly()
+      } finally {
+        devicePollInFlightRef.current = false
+        scheduleNext()
+      }
+    }
+
+    scheduleNext()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [fetchDevicesOnly])
+
+  const effectiveHealth = useMemo(
+    () => health ?? buildUnknownHealth(devices),
+    [health, devices],
+  )
+
+  const rows = useMemo(
+    () => mergeDeviceRows(devices, effectiveHealth.devices),
+    [devices, effectiveHealth],
+  )
+
+  const warnings = useMemo(
+    () => Object.values(warningsBySource).filter((warning): warning is string => Boolean(warning)),
+    [warningsBySource],
+  )
 
   const anomalyRows = useMemo(
     () => rows.filter((row) => row.status !== 'online'),
@@ -129,7 +302,7 @@ export default function FleetPage() {
     </main>
   )
 
-  if (loading || !health) return loadingContent
+  if (loading) return loadingContent
 
   return (
     <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl space-y-6 px-4 py-7 sm:px-6 lg:px-8">
@@ -139,24 +312,29 @@ export default function FleetPage() {
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Arista Fleet Console</p>
             <h1 className="font-display mt-2 text-3xl font-semibold text-balance">現代化監控總覽</h1>
             <p className="mt-2 text-sm text-slate-600">
-              上次更新：{formatRelativeTime(new Date().toISOString())}，每 10 秒輪詢同步
+              上次更新：{formatRelativeTime(lastUpdatedAt)}，健康每 10 秒、設備清單每 60 秒（背景分頁 30 秒）
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => {
-                exportFleetSnapshotPdf(
-                  {
-                    total: health.total_devices,
-                    online: health.online_devices,
-                    degraded: health.degraded_devices,
-                    offline: health.offline_devices,
-                  },
-                  anomalyRows,
-                )
-                pushToast({ type: 'success', title: '已匯出 Fleet PDF' })
+              onClick={async () => {
+                try {
+                  await exportFleetSnapshotPdf(
+                    {
+                      total: effectiveHealth.total_devices,
+                      online: effectiveHealth.online_devices,
+                      degraded: effectiveHealth.degraded_devices,
+                      offline: effectiveHealth.offline_devices,
+                    },
+                    anomalyRows,
+                  )
+                  pushToast({ type: 'success', title: '已匯出 Fleet PDF' })
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : '未知錯誤'
+                  pushToast({ type: 'error', title: 'Fleet PDF 匯出失敗', description: message })
+                }
               }}
             >
               匯出 Fleet PDF
@@ -164,7 +342,7 @@ export default function FleetPage() {
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => void fetchData()}
+              onClick={() => void fetchFullSnapshot(true)}
               disabled={refreshing}
             >
               <span className="inline-flex items-center gap-2">
@@ -181,14 +359,14 @@ export default function FleetPage() {
       )}
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4" data-testid="fleet-kpi-cards">
-        <KpiCard title="總設備" value={health.total_devices} tone="neutral" icon={Router} subtitle="設備 inventory" />
-        <KpiCard title="在線" value={health.online_devices} tone="online" icon={Wifi} subtitle="last_seen within threshold" />
-        <KpiCard title="降級" value={health.degraded_devices} tone="degraded" icon={AlertTriangle} subtitle="重試中設備" />
-        <KpiCard title="離線" value={health.offline_devices} tone="offline" icon={WifiOff} subtitle="超過離線門檻" />
+        <KpiCard title="總設備" value={effectiveHealth.total_devices} tone="neutral" icon={Router} subtitle="設備 inventory" />
+        <KpiCard title="在線" value={effectiveHealth.online_devices} tone="online" icon={Wifi} subtitle="last_seen within threshold" />
+        <KpiCard title="降級" value={effectiveHealth.degraded_devices} tone="degraded" icon={AlertTriangle} subtitle="重試中設備" />
+        <KpiCard title="離線" value={effectiveHealth.offline_devices} tone="offline" icon={WifiOff} subtitle="超過離線門檻" />
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <StatusDonutChart online={health.online_devices} degraded={health.degraded_devices} offline={health.offline_devices} />
+        <StatusDonutChart online={effectiveHealth.online_devices} degraded={effectiveHealth.degraded_devices} offline={effectiveHealth.offline_devices} />
         <LatencyBarChart rows={rows} />
         <EventTypeBarChart data={eventTypeCounts} />
         <HealthTrendSparkline data={trend} />
@@ -207,5 +385,3 @@ export default function FleetPage() {
     </main>
   )
 }
-
-

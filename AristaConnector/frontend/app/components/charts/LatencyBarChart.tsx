@@ -1,5 +1,6 @@
 'use client'
 
+import { memo, useMemo } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { formatLatency } from '@/app/lib/format'
 import type { DeviceListRow } from '@/app/lib/types'
@@ -8,15 +9,17 @@ interface LatencyBarChartProps {
   rows: DeviceListRow[]
 }
 
-export default function LatencyBarChart({ rows }: LatencyBarChartProps) {
-  const data = [...rows]
-    .filter((row) => row.latencyMs !== null)
-    .sort((a, b) => (b.latencyMs ?? 0) - (a.latencyMs ?? 0))
-    .slice(0, 8)
-    .map((row) => ({
-      name: row.hostname || row.ip,
-      latency: Number((row.latencyMs ?? 0).toFixed(2)),
-    }))
+function LatencyBarChart({ rows }: LatencyBarChartProps) {
+  const data = useMemo(() => (
+    [...rows]
+      .filter((row) => row.latencyMs !== null)
+      .sort((a, b) => (b.latencyMs ?? 0) - (a.latencyMs ?? 0))
+      .slice(0, 8)
+      .map((row) => ({
+        name: row.hostname || row.ip,
+        latency: Number((row.latencyMs ?? 0).toFixed(2)),
+      }))
+  ), [rows])
 
   return (
     <section className="card-surface p-5">
@@ -40,10 +43,12 @@ export default function LatencyBarChart({ rows }: LatencyBarChartProps) {
               formatter={(value) => [formatLatency(Number(value ?? 0)), '延遲']}
               contentStyle={{ borderRadius: '12px', border: '1px solid #dbe6f0' }}
             />
-            <Bar dataKey="latency" fill="#2f7ed9" radius={[0, 8, 8, 0]} />
+            <Bar dataKey="latency" fill="#2f7ed9" radius={[0, 8, 8, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>
     </section>
   )
 }
+
+export default memo(LatencyBarChart)

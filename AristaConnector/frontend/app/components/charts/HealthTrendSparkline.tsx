@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 export interface HealthTrendPoint {
@@ -13,7 +14,7 @@ interface HealthTrendSparklineProps {
   data: HealthTrendPoint[]
 }
 
-export default function HealthTrendSparkline({ data }: HealthTrendSparklineProps) {
+function HealthTrendSparkline({ data }: HealthTrendSparklineProps) {
   return (
     <section className="card-surface p-5">
       <header className="mb-3">
@@ -33,9 +34,9 @@ export default function HealthTrendSparkline({ data }: HealthTrendSparklineProps
             <XAxis dataKey="time" tick={{ fontSize: 11 }} stroke="#7d8da3" />
             <YAxis tick={{ fontSize: 11 }} stroke="#7d8da3" />
             <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #dbe6f0' }} />
-            <Area type="monotone" dataKey="online" stroke="#2ca26b" strokeWidth={2} fill="url(#onlineGradient)" />
-            <Area type="monotone" dataKey="degraded" stroke="#d4a82f" strokeWidth={1.7} fill="transparent" />
-            <Area type="monotone" dataKey="offline" stroke="#e05a5a" strokeWidth={1.7} fill="transparent" />
+            <Area type="monotone" dataKey="online" stroke="#2ca26b" strokeWidth={2} fill="url(#onlineGradient)" isAnimationActive={false} />
+            <Area type="monotone" dataKey="degraded" stroke="#d4a82f" strokeWidth={1.7} fill="transparent" isAnimationActive={false} />
+            <Area type="monotone" dataKey="offline" stroke="#e05a5a" strokeWidth={1.7} fill="transparent" isAnimationActive={false} />
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -43,3 +44,4 @@ export default function HealthTrendSparkline({ data }: HealthTrendSparklineProps
   )
 }
 
+export default memo(HealthTrendSparkline)

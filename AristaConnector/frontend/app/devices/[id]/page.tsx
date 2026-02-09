@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Download, RefreshCw } from 'lucide-react'
 import { getDevice, getDeviceEvents, getDeviceStatus } from '@/app/lib/api'
@@ -16,6 +16,9 @@ import StatusBadge from '@/app/components/ui/StatusBadge'
 import { useToast } from '@/app/components/feedback/ToastProvider'
 import { exportEventsCsv, exportEventsJson, exportEventsPdf } from '@/app/lib/export'
 
+const BACKGROUND_POLLING_INTERVAL_MS = 30_000
+const EVENT_FETCH_LIMIT = 50
+
 function asRange(value: string | null): TimelineRange {
   if (value === '1h' || value === '6h' || value === '24h' || value === 'all') return value
   return '24h'
@@ -23,6 +26,18 @@ function asRange(value: string | null): TimelineRange {
 
 function fileFriendlyLabel(input: string) {
   return input.replace(/[^a-zA-Z0-9-_]/g, '_')
+}
+
+interface WarningMap {
+  device?: string
+  status?: string
+  events?: string
+}
+
+interface FetchOptions {
+  includeDevice: boolean
+  notifyOnError: boolean
+  showRefreshing: boolean
 }
 
 export default function DeviceDetailPage() {
@@ -42,7 +57,24 @@ export default function DeviceDetailPage() {
   const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [warnings, setWarnings] = useState<string[]>([])
+  const [warningsBySource, setWarningsBySource] = useState<WarningMap>({})
+
+  const fetchInFlightRef = useRef(false)
+
+  const setWarning = useCallback((key: keyof WarningMap, value: string | null) => {
+    setWarningsBySource((prev) => {
+      const next = { ...prev }
+      if (value) next[key] = value
+      else delete next[key]
+      return next
+    })
+  }, [])
+
+  const getPollingDelay = useCallback(() => (
+    typeof document !== 'undefined' && document.hidden
+      ? BACKGROUND_POLLING_INTERVAL_MS
+      : POLLING_INTERVAL_MS
+  ), [])
 
   function updateQuery(next: Record<string, string | undefined>) {
     const merged = Object.fromEntries(searchParams.entries()) as Record<string, string>
@@ -57,30 +89,54 @@ export default function DeviceDetailPage() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
 
-  async function fetchData() {
+  const fetchData = useCallback(async (options: FetchOptions) => {
+    if (fetchInFlightRef.current) return
+    fetchInFlightRef.current = true
+
+    if (options.showRefreshing) setRefreshing(true)
+
     try {
-      setRefreshing(true)
       const [deviceRes, statusRes, eventsRes] = await Promise.allSettled([
-        getDevice(deviceId),
+        options.includeDevice ? getDevice(deviceId) : Promise.resolve(null),
         getDeviceStatus(deviceId),
-        getDeviceEvents(deviceId, 100),
+        getDeviceEvents(deviceId, EVENT_FETCH_LIMIT),
       ])
+
       const issues: string[] = []
 
-      if (deviceRes.status === 'fulfilled') setDevice(deviceRes.value)
-      else issues.push(`設備資料失敗：${deviceRes.reason.message ?? '未知錯誤'}`)
+      if (options.includeDevice) {
+        if (deviceRes.status === 'fulfilled' && deviceRes.value) {
+          setDevice(deviceRes.value)
+          setWarning('device', null)
+        } else if (deviceRes.status === 'rejected') {
+          const message = deviceRes.reason?.message ?? '未知錯誤'
+          const issue = `設備資料失敗：${message}`
+          issues.push(issue)
+          setWarning('device', issue)
+        }
+      }
 
-      if (statusRes.status === 'fulfilled') setStatus(statusRes.value)
-      else issues.push(`狀態資料失敗：${statusRes.reason.message ?? '未知錯誤'}`)
+      if (statusRes.status === 'fulfilled') {
+        setStatus(statusRes.value)
+        setWarning('status', null)
+      } else {
+        const message = statusRes.reason?.message ?? '未知錯誤'
+        const issue = `狀態資料失敗：${message}`
+        issues.push(issue)
+        setWarning('status', issue)
+      }
 
       if (eventsRes.status === 'fulfilled') {
         setTimeline(buildTimelineEvents(eventsRes.value))
+        setWarning('events', null)
       } else {
-        issues.push(`事件資料失敗：${eventsRes.reason.message ?? '未知錯誤'}`)
+        const message = eventsRes.reason?.message ?? '未知錯誤'
+        const issue = `事件資料失敗：${message}`
+        issues.push(issue)
+        setWarning('events', issue)
       }
 
-      setWarnings(issues)
-      if (issues.length > 0) {
+      if (issues.length > 0 && options.notifyOnError) {
         pushToast({
           type: 'error',
           title: '設備資料載入有部分失敗',
@@ -88,19 +144,68 @@ export default function DeviceDetailPage() {
         })
       }
     } finally {
+      fetchInFlightRef.current = false
       setLoading(false)
-      setRefreshing(false)
+      if (options.showRefreshing) setRefreshing(false)
     }
-  }
+  }, [deviceId, pushToast, setWarning])
 
   useEffect(() => {
-    void fetchData()
-    const timer = setInterval(() => {
-      void fetchData()
-    }, POLLING_INTERVAL_MS)
-    return () => clearInterval(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deviceId])
+    setLoading(true)
+    setStatus(null)
+    setTimeline([])
+    setSelectedEvent(null)
+    setWarningsBySource({})
+
+    void fetchData({
+      includeDevice: true,
+      notifyOnError: true,
+      showRefreshing: true,
+    })
+  }, [deviceId, fetchData])
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const scheduleNext = (delay: number) => {
+      if (cancelled) return
+      timer = setTimeout(() => {
+        void run()
+      }, delay)
+    }
+
+    const run = async () => {
+      if (cancelled) return
+
+      await fetchData({
+        includeDevice: false,
+        notifyOnError: false,
+        showRefreshing: false,
+      })
+
+      scheduleNext(getPollingDelay())
+    }
+
+    const handleVisibilityChange = () => {
+      if (timer) clearTimeout(timer)
+      scheduleNext(getPollingDelay())
+    }
+
+    scheduleNext(getPollingDelay())
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [fetchData, getPollingDelay])
+
+  const warnings = useMemo(
+    () => Object.values(warningsBySource).filter((warning): warning is string => Boolean(warning)),
+    [warningsBySource],
+  )
 
   const filteredTimeline = useMemo(
     () => filterTimelineEvents(timeline, range, type),
@@ -171,9 +276,14 @@ export default function DeviceDetailPage() {
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => {
-                exportEventsPdf(deviceLabel, filteredTimeline)
-                pushToast({ type: 'success', title: '已匯出 PDF' })
+              onClick={async () => {
+                try {
+                  await exportEventsPdf(deviceLabel, filteredTimeline)
+                  pushToast({ type: 'success', title: '已匯出 PDF' })
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : '未知錯誤'
+                  pushToast({ type: 'error', title: 'PDF 匯出失敗', description: message })
+                }
               }}
             >
               <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />PDF</span>
@@ -181,7 +291,12 @@ export default function DeviceDetailPage() {
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => void fetchData()}
+              onClick={() => void fetchData({
+                includeDevice: true,
+                notifyOnError: true,
+                showRefreshing: true,
+              })}
+              disabled={refreshing}
             >
               <span className="inline-flex items-center gap-1.5">
                 <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -264,4 +379,3 @@ export default function DeviceDetailPage() {
     </main>
   )
 }
-

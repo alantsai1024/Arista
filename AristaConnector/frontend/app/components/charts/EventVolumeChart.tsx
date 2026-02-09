@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 interface EventVolumeChartProps {
@@ -10,7 +11,7 @@ interface EventVolumeChartProps {
   }>
 }
 
-export default function EventVolumeChart({ data }: EventVolumeChartProps) {
+function EventVolumeChart({ data }: EventVolumeChartProps) {
   return (
     <section className="card-surface p-5">
       <header className="mb-3">
@@ -25,8 +26,8 @@ export default function EventVolumeChart({ data }: EventVolumeChartProps) {
             <YAxis stroke="#7d8da3" tick={{ fontSize: 11 }} />
             <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #dbe6f0' }} />
             <Legend />
-            <Bar dataKey="total" name="總事件" fill="#2f7ed9" radius={[6, 6, 0, 0]} />
-            <Bar dataKey="critical" name="高風險" fill="#e05a5a" radius={[6, 6, 0, 0]} />
+            <Bar dataKey="total" name="總事件" fill="#2f7ed9" radius={[6, 6, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="critical" name="高風險" fill="#e05a5a" radius={[6, 6, 0, 0]} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -34,3 +35,4 @@ export default function EventVolumeChart({ data }: EventVolumeChartProps) {
   )
 }
 
+export default memo(EventVolumeChart)

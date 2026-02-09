@@ -401,9 +401,14 @@ export default function DevicesPage() {
             }}>
               <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />JSON</span>
             </button>
-            <button type="button" className="btn-secondary" onClick={() => {
-              exportDevicesPdf(filteredRows)
-              pushToast({ type: 'success', title: '已匯出 PDF' })
+            <button type="button" className="btn-secondary" onClick={async () => {
+              try {
+                await exportDevicesPdf(filteredRows)
+                pushToast({ type: 'success', title: '已匯出 PDF' })
+              } catch (error) {
+                const message = error instanceof Error ? error.message : '未知錯誤'
+                pushToast({ type: 'error', title: 'PDF 匯出失敗', description: message })
+              }
             }}>
               <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />PDF</span>
             </button>

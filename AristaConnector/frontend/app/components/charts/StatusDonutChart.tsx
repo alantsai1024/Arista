@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 
 interface StatusDonutChartProps {
@@ -10,7 +11,7 @@ interface StatusDonutChartProps {
 
 const COLORS = ['#2ca26b', '#d4a82f', '#e05a5a']
 
-export default function StatusDonutChart({ online, degraded, offline }: StatusDonutChartProps) {
+function StatusDonutChart({ online, degraded, offline }: StatusDonutChartProps) {
   const data = [
     { name: '在線', value: online },
     { name: '降級', value: degraded },
@@ -35,6 +36,7 @@ export default function StatusDonutChart({ online, degraded, offline }: StatusDo
               innerRadius={56}
               outerRadius={90}
               paddingAngle={4}
+              isAnimationActive={false}
             >
               {data.map((entry, index) => (
                 <Cell key={entry.name} fill={COLORS[index]} />
@@ -54,3 +56,5 @@ export default function StatusDonutChart({ online, degraded, offline }: StatusDo
     </section>
   )
 }
+
+export default memo(StatusDonutChart)
