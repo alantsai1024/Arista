@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -372,42 +372,42 @@ export default function DevicesPage() {
 
   return (
     <main className="mx-auto max-w-7xl space-y-5 px-4 py-7 sm:px-6 lg:px-8">
-      <section className="card-surface bg-brand-gradient p-6 text-white">
+      <section className="card-surface p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-white/80">Device Operations</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Device Operations</p>
             <h1 className="font-display mt-2 text-3xl font-semibold">設備管理中心</h1>
-            <p className="mt-1 text-sm text-white/85">
+            <p className="mt-1 text-sm text-slate-600">
               支援查詢、排序、分頁、CRUD、連線測試與 CSV/JSON/PDF 匯出
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="btn-secondary border-white/35 bg-white/10 text-white hover:bg-white/20" onClick={() => {
+            <button type="button" className="btn-secondary" onClick={() => {
               setTargetDevice(null)
               setFormMode('create')
               setFormOpen(true)
             }}>
               <span className="inline-flex items-center gap-1.5"><Plus className="h-4 w-4" />新增設備</span>
             </button>
-            <button type="button" className="btn-secondary border-white/35 bg-white/10 text-white hover:bg-white/20" onClick={() => {
+            <button type="button" className="btn-secondary" onClick={() => {
               exportDevicesCsv(filteredRows)
               pushToast({ type: 'success', title: '已匯出 CSV' })
             }}>
               <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />CSV</span>
             </button>
-            <button type="button" className="btn-secondary border-white/35 bg-white/10 text-white hover:bg-white/20" onClick={() => {
+            <button type="button" className="btn-secondary" onClick={() => {
               exportDevicesJson(filteredRows)
               pushToast({ type: 'success', title: '已匯出 JSON' })
             }}>
               <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />JSON</span>
             </button>
-            <button type="button" className="btn-secondary border-white/35 bg-white/10 text-white hover:bg-white/20" onClick={() => {
+            <button type="button" className="btn-secondary" onClick={() => {
               exportDevicesPdf(filteredRows)
               pushToast({ type: 'success', title: '已匯出 PDF' })
             }}>
               <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />PDF</span>
             </button>
-            <button type="button" className="btn-secondary border-white/35 bg-white/10 text-white hover:bg-white/20" onClick={() => void fetchData()}>
+            <button type="button" className="btn-secondary" onClick={() => void fetchData()}>
               {refreshing ? '更新中...' : '刷新資料'}
             </button>
           </div>
@@ -547,3 +547,4 @@ export default function DevicesPage() {
     </main>
   )
 }
+

@@ -48,6 +48,7 @@ AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_co
 POLLING_TIMEOUT = float(os.getenv("POLLING_TIMEOUT", "5.0"))
 MAX_CONCURRENT = int(os.getenv("MAX_CONCURRENT_POLLS", "20"))
 OFFLINE_THRESHOLD_SEC = int(os.getenv("OFFLINE_THRESHOLD_SEC", "30"))
+MAX_CONSECUTIVE_ERROR_EVENT_WRITES = 4
 
 # Retention configuration
 RETENTION_ENABLED = os.getenv("RETENTION_ENABLED", "true").lower() in ("1", "true", "yes")
@@ -127,6 +128,40 @@ async def record_event(
         print(f"⚠ Event persist failed for {device_id} ({event_type}): {exc}")
 
 
+async def record_poll_error_with_cap(
+    event_session_factory: async_sessionmaker[AsyncSession],
+    *,
+    device_id: UUID,
+    message: str,
+    metadata: dict[str, Any],
+    state: dict[str, Any],
+) -> None:
+    """
+    Cap poll_error writes per consecutive failure streak.
+    """
+    write_count = int(state.get("consecutive_error_event_writes", 0))
+    if write_count >= MAX_CONSECUTIVE_ERROR_EVENT_WRITES:
+        if not state.get("error_event_suppressed", False):
+            print(
+                f"⚠ Device {device_id} poll_error writes capped at "
+                f"{MAX_CONSECUTIVE_ERROR_EVENT_WRITES}; suppressing further writes until recovery"
+            )
+            state["error_event_suppressed"] = True
+        return
+
+    await record_event(
+        event_session_factory,
+        device_id=device_id,
+        event_type="poll_error",
+        message=message,
+        metadata=metadata,
+    )
+    state["consecutive_error_event_writes"] = write_count + 1
+    state["error_event_suppressed"] = (
+        state["consecutive_error_event_writes"] >= MAX_CONSECUTIVE_ERROR_EVENT_WRITES
+    )
+
+
 def persist_raw_evidence(
     sink: RetentionSink,
     *,
@@ -187,9 +222,13 @@ async def poll_single_device(
                 "error_count": 0,
                 "last_poll_time": None,
                 "last_success_time": None,
+                "consecutive_error_event_writes": 0,
+                "error_event_suppressed": False,
             }
 
         state = device_states[device_id]
+        state.setdefault("consecutive_error_event_writes", 0)
+        state.setdefault("error_event_suppressed", False)
         now = datetime.now()
 
         if state["error_count"] > 0:
@@ -214,6 +253,8 @@ async def poll_single_device(
             if success:
                 state["error_count"] = 0
                 state["last_success_time"] = now
+                state["consecutive_error_event_writes"] = 0
+                state["error_event_suppressed"] = False
 
                 await update_redis_health(device_id, "online", redis_client, latency_ms)
 
@@ -279,12 +320,16 @@ async def poll_single_device(
                 status = "offline" if state["error_count"] >= 3 else "degraded"
                 await update_redis_health(device_id, status, redis_client)
 
-                await record_event(
+                await record_poll_error_with_cap(
                     event_session_factory,
                     device_id=device_id,
-                    event_type="poll_error",
                     message=f"Poll failed: {error_msg}",
-                    metadata={"error": error_msg, "error_count": state["error_count"]},
+                    metadata={
+                        "error": error_msg,
+                        "error_count": state["error_count"],
+                        "consecutive_error_event_writes": state["consecutive_error_event_writes"],
+                    },
+                    state=state,
                 )
 
                 publish_state(
@@ -303,12 +348,16 @@ async def poll_single_device(
 
             await update_redis_health(device_id, "offline", redis_client)
 
-            await record_event(
+            await record_poll_error_with_cap(
                 event_session_factory,
                 device_id=device_id,
-                event_type="poll_error",
                 message=f"Unexpected error: {str(exc)}",
-                metadata={"error": str(exc), "error_count": state["error_count"]},
+                metadata={
+                    "error": str(exc),
+                    "error_count": state["error_count"],
+                    "consecutive_error_event_writes": state["consecutive_error_event_writes"],
+                },
+                state=state,
             )
 
             print(f"✗ Device {device.hostname or device.ip} ({device_id}) - error: {str(exc)}")

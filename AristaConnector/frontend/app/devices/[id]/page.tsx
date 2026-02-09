@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -134,23 +134,23 @@ export default function DeviceDetailPage() {
 
   return (
     <main className="mx-auto max-w-7xl space-y-5 px-4 py-7 sm:px-6 lg:px-8">
-      <section className="card-surface bg-brand-gradient p-6 text-white">
+      <section className="card-surface p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <button
               type="button"
-              className="mb-3 rounded-xl border border-white/35 px-3 py-1 text-xs text-white/90 hover:bg-white/15"
+              className="mb-3 rounded-xl border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-50"
               onClick={() => router.push('/devices')}
             >
               返回設備管理
             </button>
-            <h1 className="font-display text-3xl font-semibold">{device.hostname || device.ip}</h1>
-            <p className="mt-1 text-sm text-white/85">ID: {device.id}</p>
+            <h1 className="font-display text-3xl font-semibold text-slate-900">{device.hostname || device.ip}</h1>
+            <p className="mt-1 text-sm text-slate-600">ID: {device.id}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className="btn-secondary border-white/40 bg-white/10 text-white hover:bg-white/20"
+              className="btn-secondary"
               onClick={() => {
                 exportEventsCsv(deviceLabel, filteredTimeline)
                 pushToast({ type: 'success', title: '已匯出 CSV' })
@@ -160,7 +160,7 @@ export default function DeviceDetailPage() {
             </button>
             <button
               type="button"
-              className="btn-secondary border-white/40 bg-white/10 text-white hover:bg-white/20"
+              className="btn-secondary"
               onClick={() => {
                 exportEventsJson(deviceLabel, filteredTimeline)
                 pushToast({ type: 'success', title: '已匯出 JSON' })
@@ -170,7 +170,7 @@ export default function DeviceDetailPage() {
             </button>
             <button
               type="button"
-              className="btn-secondary border-white/40 bg-white/10 text-white hover:bg-white/20"
+              className="btn-secondary"
               onClick={() => {
                 exportEventsPdf(deviceLabel, filteredTimeline)
                 pushToast({ type: 'success', title: '已匯出 PDF' })
@@ -180,7 +180,7 @@ export default function DeviceDetailPage() {
             </button>
             <button
               type="button"
-              className="btn-secondary border-white/40 bg-white/10 text-white hover:bg-white/20"
+              className="btn-secondary"
               onClick={() => void fetchData()}
             >
               <span className="inline-flex items-center gap-1.5">
@@ -264,3 +264,4 @@ export default function DeviceDetailPage() {
     </main>
   )
 }
+

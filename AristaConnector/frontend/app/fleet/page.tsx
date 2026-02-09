@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -133,19 +133,19 @@ export default function FleetPage() {
 
   return (
     <main className="mx-auto min-h-[calc(100vh-4rem)] max-w-7xl space-y-6 px-4 py-7 sm:px-6 lg:px-8">
-      <section className="card-surface bg-brand-gradient overflow-hidden p-6 text-white">
+      <section className="card-surface overflow-hidden p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-white/80">Arista Fleet Console</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Arista Fleet Console</p>
             <h1 className="font-display mt-2 text-3xl font-semibold text-balance">現代化監控總覽</h1>
-            <p className="mt-2 text-sm text-white/85">
+            <p className="mt-2 text-sm text-slate-600">
               上次更新：{formatRelativeTime(new Date().toISOString())}，每 10 秒輪詢同步
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="btn-secondary border-white/35 bg-white/10 text-white hover:bg-white/20"
+              className="btn-secondary"
               onClick={() => {
                 exportFleetSnapshotPdf(
                   {
@@ -163,7 +163,7 @@ export default function FleetPage() {
             </button>
             <button
               type="button"
-              className="btn-secondary border-white/35 bg-white/10 text-white hover:bg-white/20"
+              className="btn-secondary"
               onClick={() => void fetchData()}
               disabled={refreshing}
             >
@@ -207,4 +207,5 @@ export default function FleetPage() {
     </main>
   )
 }
+
 
