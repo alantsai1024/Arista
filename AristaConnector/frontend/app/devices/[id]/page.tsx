@@ -1,293 +1,266 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Download, RefreshCw } from 'lucide-react'
+import { getDevice, getDeviceEvents, getDeviceStatus } from '@/app/lib/api'
+import { POLLING_INTERVAL_MS, formatDateTime, formatLatency, queryStringFromRecord } from '@/app/lib/format'
+import type { Device, DeviceStatus, TimelineEvent, TimelineRange } from '@/app/lib/types'
+import { buildTimeBuckets, buildTimelineEvents, countEventsByType, filterTimelineEvents } from '@/app/lib/timeline'
+import EventTypePieChart from '@/app/components/charts/EventTypePieChart'
+import EventVolumeChart from '@/app/components/charts/EventVolumeChart'
+import EventTimeline from '@/app/components/timeline/EventTimeline'
+import MetadataDrawer from '@/app/components/timeline/MetadataDrawer'
+import InlineAlert from '@/app/components/feedback/InlineAlert'
+import StatusBadge from '@/app/components/ui/StatusBadge'
+import { useToast } from '@/app/components/feedback/ToastProvider'
+import { exportEventsCsv, exportEventsJson, exportEventsPdf } from '@/app/lib/export'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-interface Device {
-  id: string
-  hostname: string | null
-  ip: string
-  port: number
-  username: string
-  interval_sec: number
-  enabled: boolean
-  created_at: string
-  updated_at: string | null
+function asRange(value: string | null): TimelineRange {
+  if (value === '1h' || value === '6h' || value === '24h' || value === 'all') return value
+  return '24h'
 }
 
-interface DeviceStatus {
-  device_id: string
-  status: string
-  last_seen: string | null
-  online: boolean
-  recent_stats?: {
-    total_events_last_hour?: number
-    events_by_type?: Record<string, number>
-    last_event_at?: string | null
-    latency_ms?: number | null
-  }
-}
-
-interface Event {
-  id: string
-  device_id: string
-  event_type: string
-  message: string | null
-  metadata: any
-  created_at: string
+function fileFriendlyLabel(input: string) {
+  return input.replace(/[^a-zA-Z0-9-_]/g, '_')
 }
 
 export default function DeviceDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const deviceId = params.id as string
-  
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const { pushToast } = useToast()
+
+  const range = asRange(searchParams.get('range'))
+  const type = searchParams.get('type') || 'all'
+
   const [device, setDevice] = useState<Device | null>(null)
   const [status, setStatus] = useState<DeviceStatus | null>(null)
-  const [events, setEvents] = useState<Event[]>([])
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([])
+  const [selectedEvent, setSelectedEvent] = useState<TimelineEvent | null>(null)
   const [loading, setLoading] = useState(true)
-  const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set())
+  const [refreshing, setRefreshing] = useState(false)
+  const [warnings, setWarnings] = useState<string[]>([])
 
-  const fetchData = async () => {
+  function updateQuery(next: Record<string, string | undefined>) {
+    const merged = Object.fromEntries(searchParams.entries()) as Record<string, string>
+    Object.entries(next).forEach(([key, value]) => {
+      if (!value || value === 'all') {
+        delete merged[key]
+      } else {
+        merged[key] = value
+      }
+    })
+    const query = queryStringFromRecord(merged)
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }
+
+  async function fetchData() {
     try {
-      const [deviceRes, statusRes, eventsRes] = await Promise.all([
-        fetch(`${API_URL}/devices/${deviceId}`),
-        fetch(`${API_URL}/devices/${deviceId}/status`),
-        fetch(`${API_URL}/devices/${deviceId}/events?limit=50`)
+      setRefreshing(true)
+      const [deviceRes, statusRes, eventsRes] = await Promise.allSettled([
+        getDevice(deviceId),
+        getDeviceStatus(deviceId),
+        getDeviceEvents(deviceId, 100),
       ])
-      
-      if (deviceRes.ok) {
-        const deviceData = await deviceRes.json()
-        setDevice(deviceData)
+      const issues: string[] = []
+
+      if (deviceRes.status === 'fulfilled') setDevice(deviceRes.value)
+      else issues.push(`設備資料失敗：${deviceRes.reason.message ?? '未知錯誤'}`)
+
+      if (statusRes.status === 'fulfilled') setStatus(statusRes.value)
+      else issues.push(`狀態資料失敗：${statusRes.reason.message ?? '未知錯誤'}`)
+
+      if (eventsRes.status === 'fulfilled') {
+        setTimeline(buildTimelineEvents(eventsRes.value))
+      } else {
+        issues.push(`事件資料失敗：${eventsRes.reason.message ?? '未知錯誤'}`)
       }
-      
-      if (statusRes.ok) {
-        const statusData = await statusRes.json()
-        setStatus(statusData)
+
+      setWarnings(issues)
+      if (issues.length > 0) {
+        pushToast({
+          type: 'error',
+          title: '設備資料載入有部分失敗',
+          description: issues.join(' | '),
+        })
       }
-      
-      if (eventsRes.ok) {
-        const eventsData = await eventsRes.json()
-        setEvents(eventsData)
-      }
-    } catch (error) {
-      console.error('Failed to fetch data:', error)
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
   useEffect(() => {
-    if (deviceId) {
-      fetchData()
-      const interval = setInterval(fetchData, 10000) // Refresh every 10 seconds
-      return () => clearInterval(interval)
-    }
-  }, [deviceId]) // eslint-disable-line react-hooks/exhaustive-deps
+    void fetchData()
+    const timer = setInterval(() => {
+      void fetchData()
+    }, POLLING_INTERVAL_MS)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId])
 
-  const formatLastSeen = (lastSeen: string | null): string => {
-    if (!lastSeen) return 'Never'
-    const date = new Date(lastSeen)
-    return date.toLocaleString()
-  }
-
-  const getStatusColor = (status: string): string => {
-    switch (status) {
-      case 'online':
-        return 'bg-green-100 text-green-800 border-green-200'
-      case 'degraded':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200'
-      case 'offline':
-        return 'bg-red-100 text-red-800 border-red-200'
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200'
-    }
-  }
-
-  const toggleEventExpansion = (eventId: string) => {
-    const newExpanded = new Set(expandedEvents)
-    if (newExpanded.has(eventId)) {
-      newExpanded.delete(eventId)
-    } else {
-      newExpanded.add(eventId)
-    }
-    setExpandedEvents(newExpanded)
-  }
+  const filteredTimeline = useMemo(
+    () => filterTimelineEvents(timeline, range, type),
+    [timeline, range, type],
+  )
+  const eventTypeStats = useMemo(() => countEventsByType(filteredTimeline), [filteredTimeline])
+  const bucketData = useMemo(() => buildTimeBuckets(filteredTimeline, 10), [filteredTimeline])
+  const eventTypes = useMemo(
+    () => ['all', ...Array.from(new Set(timeline.map((event) => event.event_type)))],
+    [timeline],
+  )
+  const deviceLabel = fileFriendlyLabel(device?.hostname || device?.ip || deviceId)
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl">載入中...</div>
-      </div>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <section className="card-surface flex min-h-[300px] items-center justify-center">
+          <p className="text-sm text-slate-600">載入設備詳情中...</p>
+        </section>
+      </main>
     )
   }
 
   if (!device) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-xl text-red-600">設備未找到</div>
-      </div>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <section className="card-surface p-6 text-sm text-rose-700">找不到設備資料或設備已刪除。</section>
+      </main>
     )
   }
 
   return (
-    <main className="min-h-screen p-8 bg-gray-50">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <button
-            onClick={() => router.back()}
-            className="mb-4 text-blue-600 hover:text-blue-800"
-          >
-            ← 返回機群
-          </button>
-          <h1 className="text-4xl font-bold">{device.hostname || device.ip}</h1>
-        </div>
-
-        {/* Device Info */}
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-2xl font-semibold mb-4">設備資訊</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-sm text-gray-600">IP 位址</div>
-              <div className="text-lg font-medium">{device.ip}</div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-600">連接埠</div>
-              <div className="text-lg font-medium">{device.port}</div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-600">輪詢間隔</div>
-              <div className="text-lg font-medium">{device.interval_sec} 秒</div>
-            </div>
-            <div>
-              <div className="text-sm text-gray-600">狀態</div>
-              <div className="text-lg font-medium">
-                <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full border ${getStatusColor(status?.status || 'unknown')}`}>
-                  {status?.status || 'unknown'}
-                </span>
-              </div>
-            </div>
+    <main className="mx-auto max-w-7xl space-y-5 px-4 py-7 sm:px-6 lg:px-8">
+      <section className="card-surface bg-brand-gradient p-6 text-white">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <button
+              type="button"
+              className="mb-3 rounded-xl border border-white/35 px-3 py-1 text-xs text-white/90 hover:bg-white/15"
+              onClick={() => router.push('/devices')}
+            >
+              返回設備管理
+            </button>
+            <h1 className="font-display text-3xl font-semibold">{device.hostname || device.ip}</h1>
+            <p className="mt-1 text-sm text-white/85">ID: {device.id}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-secondary border-white/40 bg-white/10 text-white hover:bg-white/20"
+              onClick={() => {
+                exportEventsCsv(deviceLabel, filteredTimeline)
+                pushToast({ type: 'success', title: '已匯出 CSV' })
+              }}
+            >
+              <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />CSV</span>
+            </button>
+            <button
+              type="button"
+              className="btn-secondary border-white/40 bg-white/10 text-white hover:bg-white/20"
+              onClick={() => {
+                exportEventsJson(deviceLabel, filteredTimeline)
+                pushToast({ type: 'success', title: '已匯出 JSON' })
+              }}
+            >
+              <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />JSON</span>
+            </button>
+            <button
+              type="button"
+              className="btn-secondary border-white/40 bg-white/10 text-white hover:bg-white/20"
+              onClick={() => {
+                exportEventsPdf(deviceLabel, filteredTimeline)
+                pushToast({ type: 'success', title: '已匯出 PDF' })
+              }}
+            >
+              <span className="inline-flex items-center gap-1.5"><Download className="h-4 w-4" />PDF</span>
+            </button>
+            <button
+              type="button"
+              className="btn-secondary border-white/40 bg-white/10 text-white hover:bg-white/20"
+              onClick={() => void fetchData()}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                刷新
+              </span>
+            </button>
           </div>
         </div>
+      </section>
 
-        {/* Status Info */}
-        {status && (
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 className="text-2xl font-semibold mb-4">狀態資訊</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-sm text-gray-600">最後看到</div>
-                <div className="text-lg font-medium">{formatLastSeen(status.last_seen)}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">線上狀態</div>
-                <div className="text-lg font-medium">
-                  {status.online ? (
-                    <span className="text-green-600">線上</span>
-                  ) : (
-                    <span className="text-red-600">離線</span>
-                  )}
-                </div>
-              </div>
-              {status.recent_stats && (
-                <>
-                  <div>
-                    <div className="text-sm text-gray-600">平均延遲</div>
-                    <div className="text-lg font-medium">
-                      {status.recent_stats.latency_ms
-                        ? `${status.recent_stats.latency_ms.toFixed(2)} ms`
-                        : 'N/A'}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-600">過去一小時事件數</div>
-                    <div className="text-lg font-medium">
-                      {status.recent_stats.total_events_last_hour || 0}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            {status.recent_stats?.events_by_type && (
-              <div className="mt-4">
-                <div className="text-sm text-gray-600 mb-2">事件類型統計</div>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(status.recent_stats.events_by_type).map(([type, count]) => (
-                    <span
-                      key={type}
-                      className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm"
-                    >
-                      {type}: {count}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+      {warnings.length > 0 && (
+        <InlineAlert title="部分資料來源失敗" details={warnings} variant="warning" />
+      )}
 
-        {/* Recent Events */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-2xl font-semibold mb-4">最近 50 個事件</h2>
-          <div className="space-y-2">
-            {events.length === 0 ? (
-              <div className="text-gray-500 text-center py-8">尚無事件</div>
-            ) : (
-              events.map((event) => {
-                const isExpanded = expandedEvents.has(event.id)
-                let metadataObj = null
-                try {
-                  if (typeof event.metadata === 'string') {
-                    metadataObj = JSON.parse(event.metadata)
-                  } else {
-                    metadataObj = event.metadata
-                  }
-                } catch {
-                  metadataObj = event.metadata
-                }
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+        <article className="card-surface p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">狀態</p>
+          <div className="mt-2"><StatusBadge status={status?.status ?? 'unknown'} /></div>
+          <p className="mt-2 text-xs text-slate-500">online = {status?.online ? 'true' : 'false'}</p>
+        </article>
+        <article className="card-surface p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">IP / Port</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900">{device.ip}:{device.port}</p>
+          <p className="mt-2 text-xs text-slate-500">建立時間：{formatDateTime(device.created_at)}</p>
+        </article>
+        <article className="card-surface p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Latency</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900">{formatLatency(status?.recent_stats?.latency_ms)}</p>
+          <p className="mt-2 text-xs text-slate-500">輪詢間隔：{device.interval_sec} 秒</p>
+        </article>
+        <article className="card-surface p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500">事件</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900">{status?.recent_stats?.total_events_last_hour ?? 0} / hr</p>
+          <p className="mt-2 text-xs text-slate-500">last_seen：{formatDateTime(status?.last_seen ?? null)}</p>
+        </article>
+      </section>
 
-                return (
-                  <div
-                    key={event.id}
-                    className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
-                            {event.event_type}
-                          </span>
-                          <span className="text-sm text-gray-500">
-                            {new Date(event.created_at).toLocaleString()}
-                          </span>
-                        </div>
-                        {event.message && (
-                          <div className="text-sm text-gray-700 mb-2">{event.message}</div>
-                        )}
-                        {isExpanded && metadataObj && (
-                          <div className="mt-2 p-3 bg-gray-100 rounded text-xs font-mono overflow-auto">
-                            <pre>{JSON.stringify(metadataObj, null, 2)}</pre>
-                          </div>
-                        )}
-                      </div>
-                      {metadataObj && (
-                        <button
-                          onClick={() => toggleEventExpansion(event.id)}
-                          className="ml-4 px-3 py-1 text-sm text-blue-600 hover:text-blue-800"
-                        >
-                          {isExpanded ? '收起' : '展開 JSON'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <EventTypePieChart data={eventTypeStats} />
+        <EventVolumeChart data={bucketData} />
+      </section>
+
+      <section className="card-surface p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="field-group">
+            <span className="field-label">時間範圍</span>
+            <select
+              className="field-input"
+              value={range}
+              onChange={(event) => updateQuery({ range: event.target.value })}
+            >
+              <option value="1h">最近 1 小時</option>
+              <option value="6h">最近 6 小時</option>
+              <option value="24h">最近 24 小時</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+          <label className="field-group">
+            <span className="field-label">事件類型</span>
+            <select
+              className="field-input"
+              value={type}
+              onChange={(event) => updateQuery({ type: event.target.value })}
+            >
+              {eventTypes.map((eventType) => (
+                <option key={eventType} value={eventType}>{eventType === 'all' ? '全部類型' : eventType}</option>
+              ))}
+            </select>
+          </label>
         </div>
-      </div>
+      </section>
+
+      <EventTimeline
+        events={filteredTimeline}
+        activeEventId={selectedEvent?.id ?? null}
+        onSelectEvent={setSelectedEvent}
+      />
+
+      <MetadataDrawer event={selectedEvent} onClose={() => setSelectedEvent(null)} />
     </main>
   )
 }
