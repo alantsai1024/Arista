@@ -21,7 +21,7 @@ export default function Navigation() {
           </div>
           <div>
             <p className="font-display text-base font-semibold text-slate-900">Arista Monitor</p>
-            <p className="text-[11px] text-slate-500">Light Modern NOC Console</p>
+            <p className="text-[11px] text-slate-500">由 Avocado AI 開發</p>
           </div>
         </Link>
 
@@ -50,4 +50,3 @@ export default function Navigation() {
     </nav>
   )
 }
-
