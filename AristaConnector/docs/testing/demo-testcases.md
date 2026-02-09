@@ -101,5 +101,17 @@ docker compose exec mqtt mosquitto_sub -h localhost -t "network/arista/raw/#" -v
 - `backend/runtime/raw`
 - `backend/runtime/raw_ref`
 
+Docker 內檢查：
+```bash
+docker compose exec collector sh -lc "ls -lah /app/runtime/raw /app/runtime/raw_ref"
+docker compose exec collector sh -lc "find /app/runtime/raw -type f | head -n 10"
+docker compose exec collector sh -lc "cat $(find /app/runtime/raw -type f | head -n 1)"
+```
+
+主機端檢查（開發 compose 有 `./backend:/app` 掛載）：
+```bash
+ls -lah backend/runtime/raw backend/runtime/raw_ref
+```
+
 預期：
 - 有依 collector 產生的 raw 檔案與中繼參照資訊。

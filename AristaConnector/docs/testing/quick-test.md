@@ -56,3 +56,21 @@ MQTT_RAW_COMPAT_ENABLED=true
 docker compose restart backend collector
 docker compose exec mqtt mosquitto_sub -h localhost -t "network/arista/raw/#" -v
 ```
+
+## 6. 驗證保留檔案（runtime/raw）
+
+在 Docker 內查看：
+```bash
+docker compose exec collector sh -lc "ls -lah /app/runtime/raw /app/runtime/raw_ref"
+docker compose exec collector sh -lc "find /app/runtime/raw -type f | head -n 10"
+```
+
+查看其中一筆 raw JSON：
+```bash
+docker compose exec collector sh -lc "cat $(find /app/runtime/raw -type f | head -n 1)"
+```
+
+若是開發 compose（`./backend:/app`），主機端也可直接看：
+```bash
+ls -lah backend/runtime/raw backend/runtime/raw_ref
+```
