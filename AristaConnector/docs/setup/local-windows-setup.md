@@ -86,13 +86,22 @@ python collector.py
 
 ## 6) 真實 vEOS Bootstrap
 
+先在專案根目錄建立逐機帳密檔（請填入真實帳密）：
+```powershell
+Copy-Item .\secrets\veos_credentials.example.json .\secrets\veos_credentials.json
+```
+
+建議限制檔案權限：
+```powershell
+icacls .\secrets\veos_credentials.json /inheritance:r /grant:r "$env:USERNAME:(R)"
+```
+
 開新終端機：
 ```powershell
 cd backend
 .\.venv\Scripts\Activate.ps1
 $env:VEOS_TARGETS="192.168.56.2,192.168.56.3,192.168.56.4"
-$env:VEOS_USERNAME="admin"
-$env:VEOS_PASSWORD="0000"
+$env:VEOS_CREDENTIALS_FILE="..\secrets\veos_credentials.json"
 $env:VEOS_PORT="443"
 $env:VEOS_INTERVAL_SEC="10"
 python scripts/bootstrap_real_veos.py

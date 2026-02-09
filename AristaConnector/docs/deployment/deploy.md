@@ -18,19 +18,9 @@
 
 #### 方法 1: 使用部署腳本 (推薦)
 
-**Linux/Mac/WSL:**
+**Linux/Mac/WSL/Git Bash:**
 ```bash
 chmod +x deploy.sh
-./deploy.sh
-```
-
-**Windows PowerShell:**
-```powershell
-.\deploy.ps1
-```
-
-**Windows (Git Bash/WSL):**
-```bash
 ./deploy.sh
 ```
 

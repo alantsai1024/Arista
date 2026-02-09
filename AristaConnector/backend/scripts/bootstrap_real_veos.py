@@ -12,8 +12,10 @@ Flow:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -21,13 +23,118 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+DEFAULT_TARGETS = "192.168.56.2,192.168.56.3,192.168.56.4"
+LEGACY_ENV_VARS = ("VEOS_USERNAME", "VEOS_PASSWORD")
+LEGACY_CLI_FLAGS = ("--username", "--password")
+CredentialsByIP = dict[str, dict[str, str]]
+
+
+class ConfigError(ValueError):
+    """Raised when bootstrap configuration is invalid."""
+
 
 def parse_targets(raw: str) -> list[str]:
-    return [ip.strip() for ip in raw.split(",") if ip.strip()]
+    targets: list[str] = []
+    seen: set[str] = set()
+    for token in raw.split(","):
+        ip = token.strip()
+        if not ip or ip in seen:
+            continue
+        seen.add(ip)
+        targets.append(ip)
+    return targets
 
 
-def build_args() -> argparse.Namespace:
+def has_legacy_cli_args(argv: list[str]) -> bool:
+    for arg in argv:
+        for flag in LEGACY_CLI_FLAGS:
+            if arg == flag or arg.startswith(f"{flag}="):
+                return True
+    return False
+
+
+def ensure_legacy_env_vars_not_set() -> None:
+    blocked = [name for name in LEGACY_ENV_VARS if name in os.environ]
+    if blocked:
+        blocked_str = ", ".join(blocked)
+        raise ConfigError(
+            f"Legacy env vars are not supported: {blocked_str}. "
+            "Use VEOS_CREDENTIALS_FILE with per-target credentials JSON."
+        )
+
+
+def load_credentials_file(path: str) -> CredentialsByIP:
+    if not path:
+        raise ConfigError("Missing credentials file. Set VEOS_CREDENTIALS_FILE or pass --credentials-file.")
+
+    credentials_path = Path(path)
+    try:
+        raw = credentials_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise ConfigError(f"Credentials file not found: {path}") from exc
+    except OSError as exc:
+        raise ConfigError(f"Failed to read credentials file {path}: {exc}") from exc
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            f"Invalid credentials JSON in {path}: {exc.msg} (line {exc.lineno}, col {exc.colno})"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise ConfigError("Credentials JSON root must be an object: {\"<ip>\": {\"username\": \"...\", \"password\": \"...\"}}")
+
+    credentials: CredentialsByIP = {}
+    for raw_ip, raw_cred in data.items():
+        if not isinstance(raw_ip, str) or not raw_ip.strip():
+            raise ConfigError("Credentials JSON keys must be non-empty IP strings.")
+        ip = raw_ip.strip()
+
+        if not isinstance(raw_cred, dict):
+            raise ConfigError(f"Credential entry for {ip} must be an object.")
+
+        username = raw_cred.get("username")
+        password = raw_cred.get("password")
+
+        if not isinstance(username, str) or not username.strip():
+            raise ConfigError(f"Credential entry for {ip} must include non-empty string 'username'.")
+        if not isinstance(password, str) or password == "":
+            raise ConfigError(f"Credential entry for {ip} must include non-empty string 'password'.")
+
+        credentials[ip] = {"username": username.strip(), "password": password}
+
+    return credentials
+
+
+def validate_credentials_targets(targets: list[str], credentials_map: CredentialsByIP) -> None:
+    target_set = set(targets)
+    credentials_set = set(credentials_map.keys())
+
+    missing = sorted(target_set - credentials_set)
+    extra = sorted(credentials_set - target_set)
+
+    errors: list[str] = []
+    if missing:
+        errors.append(f"Missing credentials for targets: {', '.join(missing)}")
+    if extra:
+        errors.append(f"Credentials file has extra entries not in VEOS_TARGETS: {', '.join(extra)}")
+
+    if errors:
+        raise ConfigError("; ".join(errors))
+
+
+def get_credentials_for_target(ip: str, credentials_map: CredentialsByIP) -> tuple[str, str]:
+    cred = credentials_map.get(ip)
+    if cred is None:
+        raise ConfigError(f"No credentials found for target {ip}")
+    return cred["username"], cred["password"]
+
+
+def build_args(argv: list[str] | None = None) -> argparse.Namespace:
+    argv = argv if argv is not None else sys.argv[1:]
     parser = argparse.ArgumentParser(description="Bootstrap real vEOS devices into AristaConnector")
+
     parser.add_argument(
         "--api-url",
         default=os.getenv("ARISTA_API_URL", "http://localhost:8000"),
@@ -35,11 +142,14 @@ def build_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--targets",
-        default=os.getenv("VEOS_TARGETS", "192.168.56.2,192.168.56.3,192.168.56.4"),
+        default=os.getenv("VEOS_TARGETS", DEFAULT_TARGETS),
         help="Comma separated list of target device IPs",
     )
-    parser.add_argument("--username", default=os.getenv("VEOS_USERNAME", "admin"), help="eAPI username")
-    parser.add_argument("--password", default=os.getenv("VEOS_PASSWORD", "0000"), help="eAPI password")
+    parser.add_argument(
+        "--credentials-file",
+        default=os.getenv("VEOS_CREDENTIALS_FILE", ""),
+        help="Path to credentials JSON file: {\"<ip>\": {\"username\": \"...\", \"password\": \"...\"}}",
+    )
     parser.add_argument("--port", type=int, default=int(os.getenv("VEOS_PORT", "443")), help="eAPI port")
     parser.add_argument(
         "--interval-sec",
@@ -53,7 +163,12 @@ def build_args() -> argparse.Namespace:
         default=None,
         help="When set, cleanup is non-interactive for non-target devices",
     )
-    return parser.parse_args()
+    if has_legacy_cli_args(argv):
+        parser.error(
+            "Legacy CLI args --username/--password are not supported. "
+            "Use --credentials-file with per-target credentials JSON."
+        )
+    return parser.parse_args(argv)
 
 
 def eapi_probe(ip: str, port: int, username: str, password: str, timeout: float = 10.0) -> tuple[bool, str | None, str]:
@@ -143,13 +258,13 @@ def upsert_targets(
     hostnames_by_ip: dict[str, str],
     *,
     targets: list[str],
-    username: str,
-    password: str,
+    credentials_by_ip: CredentialsByIP,
     port: int,
     interval_sec: int,
 ) -> list[dict[str, Any]]:
     upserted: list[dict[str, Any]] = []
     for ip in targets:
+        username, password = get_credentials_for_target(ip, credentials_by_ip)
         hostname = hostnames_by_ip.get(ip, ip)
         payload = {
             "hostname": hostname,
@@ -173,23 +288,36 @@ def upsert_targets(
     return upserted
 
 
-def main() -> int:
-    args = build_args()
-    targets = parse_targets(args.targets)
-    if not targets:
-        print("No target IPs configured.")
-        return 1
+def main(argv: list[str] | None = None) -> int:
+    try:
+        args = build_args(argv)
+    except SystemExit as exc:
+        return int(exc.code) if isinstance(exc.code, int) else 2
+
+    try:
+        ensure_legacy_env_vars_not_set()
+        targets = parse_targets(args.targets)
+        if not targets:
+            raise ConfigError("No target IPs configured. Set VEOS_TARGETS.")
+
+        credentials_by_ip = load_credentials_file(args.credentials_file)
+        validate_credentials_targets(targets, credentials_by_ip)
+    except ConfigError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
 
     print("=== Real vEOS Bootstrap ===")
     print(f"API URL: {args.api_url}")
     print(f"Targets: {', '.join(targets)}")
-    print(f"Credentials: {args.username}/{'*' * len(args.password)}")
+    print(f"Target count: {len(targets)}")
+    print(f"Credentials file: {args.credentials_file}")
     print("")
 
     hostnames_by_ip: dict[str, str] = {}
     probe_failed = False
     for ip in targets:
-        ok, hostname, message = eapi_probe(ip, args.port, args.username, args.password)
+        username, password = get_credentials_for_target(ip, credentials_by_ip)
+        ok, hostname, message = eapi_probe(ip, args.port, username, password)
         if ok:
             hostnames_by_ip[ip] = hostname or ip
             print(f"[OK] eAPI probe {ip} -> hostname={hostnames_by_ip[ip]}")
@@ -232,8 +360,7 @@ def main() -> int:
         existing_by_ip,
         hostnames_by_ip,
         targets=targets,
-        username=args.username,
-        password=args.password,
+        credentials_by_ip=credentials_by_ip,
         port=args.port,
         interval_sec=args.interval_sec,
     )

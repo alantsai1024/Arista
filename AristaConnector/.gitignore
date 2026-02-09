@@ -2,6 +2,8 @@
 .env
 .env.local
 .env*.local
+secrets/*
+!secrets/veos_credentials.example.json
 
 # Python
 __pycache__/

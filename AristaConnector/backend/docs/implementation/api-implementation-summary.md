@@ -175,6 +175,6 @@ docker compose exec backend pytest tests/ -v
 
 ## 📚 相關文件
 
-- `MIGRATION_GUIDE.md`：資料庫 migration 詳細說明
-- `README_MIGRATIONS.md`：migration 快速參考
-- `TESTING.md`：測試指南與範例
+- `../migrations/migration-guide.md`：資料庫 migration 詳細說明
+- `../migrations/readme-migrations.md`：migration 快速參考
+- `../testing/testing.md`：測試指南與範例

@@ -32,5 +32,5 @@ pytest tests/ -v
 ## 備註
 
 - 目前主要驗收基準是「真實 vEOS 整合」，而非舊的 30 台假設備播種流程。
-- 若要用真實設備驗證，請使用 `scripts/bootstrap_real_veos.py`，並搭配根目錄 `DEMO_TESTCASES.md`。
+- 若要用真實設備驗證，請使用 `scripts/bootstrap_real_veos.py`，並搭配 `../../../docs/testing/demo-testcases.md`。
 

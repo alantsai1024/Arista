@@ -10,14 +10,7 @@
 
 ### 部署步驟
 
-#### Windows PowerShell
-
-```powershell
-# 執行部署腳本
-.\deploy.ps1
-```
-
-#### Linux/Mac/WSL/Git Bash
+#### Linux/Mac/WSL/Git Bash（Windows 建議使用 WSL/Git Bash）
 
 ```bash
 # 賦予執行權限
@@ -152,4 +145,4 @@ docker compose logs <service_name>
 3. 設定監控和告警
 4. 配置自動備份
 
-詳細部署文檔請參考 `DEPLOY.md`
+詳細部署文檔請參考 `deploy.md`

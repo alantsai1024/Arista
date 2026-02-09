@@ -7,9 +7,8 @@
 - `192.168.56.3`
 - `192.168.56.4`
 
-Bootstrap 預設帳密：
-- 使用者名稱：`admin`
-- 密碼：`0000`
+Bootstrap 逐機帳密改由 secrets JSON 檔提供（IP -> username/password 對應），
+請使用 `secrets/veos_credentials.example.json` 建立本機 `secrets/veos_credentials.json`。
 
 ## 核心功能
 
@@ -32,7 +31,7 @@ Bootstrap 預設帳密：
 ## 快速開始
 
 請先閱讀 `QUICKSTART.md`。
-設備上線的中文說明請見 `ADD_DEVICES_GUIDE_ZH.md`。
+設備上線的中文說明請見 `docs/setup/add-devices-zh.md`。
 
 ## 真實 vEOS Bootstrap
 
@@ -41,6 +40,19 @@ Bootstrap 預設帳密：
 2. 以互動方式清理非目標設備（`delete/disable/keep`）。
 3. 對目標設備執行 upsert。
 4. 執行連線測試。
+
+先準備逐機帳密（勿提交真實密碼）：
+
+```bash
+cp .env.example .env
+cp secrets/veos_credentials.example.json secrets/veos_credentials.json
+```
+
+Windows PowerShell：
+```powershell
+Copy-Item .\.env.example .\.env
+Copy-Item .\secrets\veos_credentials.example.json .\secrets\veos_credentials.json
+```
 
 Docker 模式：
 ```bash
@@ -63,10 +75,14 @@ python scripts/bootstrap_real_veos.py
 - `RETENTION_BASE_DIR`（預設 `./runtime`）
 - `RETENTION_TARGETS`（預設 `*`）
 - `VEOS_TARGETS`（預設 `192.168.56.2,192.168.56.3,192.168.56.4`）
-- `VEOS_USERNAME`（預設 `admin`）
-- `VEOS_PASSWORD`（預設 `0000`）
+- `VEOS_CREDENTIALS_FILE`（預設 `/run/secrets/veos_credentials.json`）
 - `VEOS_PORT`（預設 `443`）
 - `VEOS_INTERVAL_SEC`（預設 `10`）
+
+安全建議：
+- Linux/macOS：`chmod 600 secrets/veos_credentials.json`
+- Windows：`icacls .\secrets\veos_credentials.json /inheritance:r /grant:r "$env:USERNAME:(R)"`
+- 請勿將 `secrets/veos_credentials.json` 提交到 git（已在 `.gitignore` 排除）
 
 ## 驗證
 
@@ -75,8 +91,9 @@ python scripts/bootstrap_real_veos.py
 - 設備事件：`GET /devices/{id}/events`
 - MQTT 訂閱輔助腳本：`scripts/subscribe_topics.sh`
 
-詳細測試流程請見 `DEMO_TESTCASES.md`。
+詳細測試流程請見 `docs/testing/demo-testcases.md`。
+完整文件索引請見 `docs/README.md`。
 
 ## Windows 本機安裝（無 Docker）
 
-請參考 `LOCAL_WINDOWS_SETUP.md`，內含 Windows 上 PostgreSQL、Redis、Mosquitto 與 backend/collector 的完整設定。
+請參考 `docs/setup/local-windows-setup.md`，內含 Windows 上 PostgreSQL、Redis、Mosquitto 與 backend/collector 的完整設定。

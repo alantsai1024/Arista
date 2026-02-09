@@ -22,3 +22,5 @@ docker compose exec backend python scripts/bootstrap_real_veos.py
 # 或
 cd backend && python scripts/bootstrap_real_veos.py
 ```
+
+快速驗證流程請見 `../docs/testing/quick-test.md`。

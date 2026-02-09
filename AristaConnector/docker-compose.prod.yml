@@ -8,8 +8,11 @@ services:
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-arista}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arista}
-    # Remove volume mounts in production (use built images)
-    volumes: []
+      - VEOS_TARGETS=${VEOS_TARGETS:-}
+      - VEOS_CREDENTIALS_FILE=${VEOS_CREDENTIALS_FILE:-/run/secrets/veos_credentials.json}
+    # Keep only secrets mount in production.
+    volumes:
+      - ./secrets:/run/secrets:ro
     # Use production command
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
 

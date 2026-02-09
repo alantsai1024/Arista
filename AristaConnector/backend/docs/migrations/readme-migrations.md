@@ -60,5 +60,5 @@ make migrate
 3. 更新外鍵關聯
 4. 移除舊的整數欄位
 
-詳細說明請見 `MIGRATION_GUIDE.md`。
+詳細說明請見 `migration-guide.md`。
 
