@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
       contentType: 'application/json',
       body: JSON.stringify({
         device_id: 'device-1',
-        status: 'degraded',
+        status: 'ip_conflict',
         last_seen: '2026-01-01T10:03:00Z',
         online: false,
         recent_stats: {
@@ -84,6 +84,7 @@ test('device detail renders timeline, metadata drawer, filters, and export', asy
   await page.goto('/devices/device-1?range=all')
 
   await expect(page.locator('h1')).toContainText('leaf-01')
+  await expect(page.getByText('IP 衝突')).toBeVisible()
   await expect(page.getByTestId('device-event-timeline')).toBeVisible()
   await expect(page.getByText('chain-2 #1')).toBeVisible()
 

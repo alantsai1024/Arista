@@ -51,11 +51,11 @@ async def get_fleet_health(db: AsyncSession = Depends(get_db)):
 
         status_str = status_raw.decode() if status_raw else "unknown"
         
-        # Determine online status (last_seen within 30s)
+        # Determine online status (must be explicit online + fresh last_seen)
         online = False
         if last_seen:
             age = (datetime.now() - last_seen).total_seconds()
-            online = age <= 30
+            online = status_str == "online" and age <= 30
         
         # Count by status
         if status_str == "online" and online:

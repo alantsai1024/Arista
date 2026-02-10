@@ -439,6 +439,7 @@ export default function DevicesPage() {
               <option value="online">在線</option>
               <option value="degraded">降級</option>
               <option value="offline">離線</option>
+              <option value="ip_conflict">IP 衝突</option>
               <option value="unknown">未知</option>
             </select>
           </label>

@@ -5,6 +5,7 @@
 ## 專案能做什麼
 - 管理 Arista vEOS 設備清單，包含新增、查詢、更新與狀態查看。
 - 以固定間隔輪詢設備 eAPI，取得系統時間、主機名稱、介面狀態等資訊。
+- 以 `show version` 身份指紋（serial/mac）驗證設備身份，避免同 IP/同 hostname 誤判。
 - 追蹤設備健康狀態與延遲，並提供機群健康概覽。
 - 將輪詢結果保存為事件紀錄，方便查詢與統計。
 - 透過 MQTT 發布設備狀態與遙測資料，提供即時訂閱來源。
@@ -13,8 +14,10 @@
 
 ## 目前可達成什麼
 - 可透過 API 建立、列出、取得、更新設備資料。
+- 可設定設備身份模式（`identity_mode=auto|manual`）與預期指紋（`expected_identity_fingerprint`）。
 - 可對單一設備進行 eAPI 連線測試。
 - Collector 可依設備 `interval_sec` 進行輪詢，並支援並發與退避。
+- 當輪詢成功但身份比對失敗時，會標記 `ip_conflict` 並停止 telemetry/raw 發布。
 - Redis 會保存 `last_seen`、`status`、`latency_ms` 等健康資訊。
 - 系統會將輪詢成功/失敗寫入 `events`，可查最近事件或統計。
 - MQTT 可發佈 state 與 telemetry 主題，符合既定 envelope 格式。
@@ -48,6 +51,8 @@ POST /devices
   "port": 443,
   "username": "admin",
   "password": "your_password",
+  "identity_mode": "auto",
+  "expected_identity_fingerprint": "<optional sha256 hex>",
   "interval_sec": 10,
   "enabled": true
 }
@@ -68,6 +73,7 @@ Collector 目前固定輪詢以下 eAPI 指令：
 - `show clock`
 - `show hostname`
 - `show interfaces status`
+- `show version`
 
 如需新增指令，可修改：
 - `backend/app/services/collector_client.py` 的 `EAPI_COMMANDS`
@@ -77,3 +83,4 @@ Collector 目前固定輪詢以下 eAPI 指令：
 1. 連線逾時或拒絕：檢查設備管理網路、ACL、防火牆與 port 是否開放。
 2. 驗證失敗：確認帳號密碼正確，且權限足以執行 `show` 指令。
 3. SSL 憑證問題：目前後端會忽略驗證（`verify=False`），正式環境請改用有效憑證或調整驗證策略。
+4. 顯示 `ip_conflict`：代表連線可達但身份指紋不一致，常見於重複 IP 或克隆設備未重設 serial/mac。

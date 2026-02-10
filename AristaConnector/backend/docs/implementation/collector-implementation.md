@@ -8,6 +8,7 @@
 - ✅ 從資料庫載入已啟用設備
 - ✅ 依每台設備設定的 `interval_sec` 輪詢（預設 10 秒）
 - ✅ 執行 eAPI 指令：`show clock`、`show hostname`、`show interfaces status`
+- ✅ 執行 `show version` 萃取身份指紋（serial/mac）
 - ✅ 使用 async httpx + 併發控制（semaphore，預設 20）
 - ✅ 指數退避：10s → 20s → 40s → 60s（上限 60s）
 - ✅ 將事件寫入 Postgres（events 資料表）
@@ -16,11 +17,13 @@
   - `device:<id>:status` = online/degraded/offline
   - `device:<id>:latency_ms` = 回應延遲
 - ✅ 離線規則：若 `now - last_seen > 30s` 則視為 offline
+- ✅ 身份驗證規則：poll 成功後需先通過 fingerprint 比對才可標記 online
 
 **狀態邏輯：**
 - `online`：輪詢成功，且 last_seen 在 30 秒內
 - `degraded`：連續 1 到 2 次失敗
 - `offline`：連續 3 次以上失敗，或 last_seen 超過 30 秒
+- `ip_conflict`：連線成功但 fingerprint 與預期不一致（嚴格模式下阻斷 telemetry/raw）
 
 ### 2. Events DAO（`backend/app/dao/events.py`）
 

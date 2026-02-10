@@ -118,12 +118,12 @@ def test_main_uses_per_target_credentials_for_probe_and_upsert(monkeypatch, tmp_
 
     def fake_probe(ip, port, username, password, timeout=10.0):
         probe_calls.append((ip, username, password))
-        return True, f"host-{ip}", "ok"
+        return True, f"host-{ip}", f"fp-{ip}", {"serial_number": "SN1", "system_mac": "001122334455"}, "ok"
 
     def fake_api_get_devices(_api_url):
         return []
 
-    def fake_upsert_targets(_api_url, _existing_by_ip, _hostnames_by_ip, **kwargs):
+    def fake_upsert_targets(_api_url, _existing_by_ip, _hostnames_by_ip, _fingerprints_by_ip, **kwargs):
         upsert_seen["credentials_by_ip"] = kwargs["credentials_by_ip"]
         return []
 
@@ -163,15 +163,15 @@ def test_main_probe_failure_continues_upsert_by_default(monkeypatch, tmp_path):
 
     def fake_probe(ip, port, username, password, timeout=10.0):
         if ip == "192.168.56.3":
-            return False, None, "auth failed"
-        return True, f"host-{ip}", "ok"
+            return False, None, None, {"serial_number": None, "system_mac": None}, "auth failed"
+        return True, f"host-{ip}", f"fp-{ip}", {"serial_number": "SN1", "system_mac": "001122334455"}, "ok"
 
     def fake_api_get_devices(_api_url):
         return []
 
     upsert_seen = {"called": False, "hostnames_by_ip": {}}
 
-    def fake_upsert(_api_url, _existing_by_ip, hostnames_by_ip, **_kwargs):
+    def fake_upsert(_api_url, _existing_by_ip, hostnames_by_ip, _fingerprints_by_ip, **_kwargs):
         upsert_seen["called"] = True
         upsert_seen["hostnames_by_ip"] = hostnames_by_ip
         return []
@@ -206,8 +206,8 @@ def test_main_probe_failure_aborts_when_policy_abort(monkeypatch, tmp_path):
 
     def fake_probe(ip, port, username, password, timeout=10.0):
         if ip == "192.168.56.3":
-            return False, None, "auth failed"
-        return True, f"host-{ip}", "ok"
+            return False, None, None, {"serial_number": None, "system_mac": None}, "auth failed"
+        return True, f"host-{ip}", f"fp-{ip}", {"serial_number": "SN1", "system_mac": "001122334455"}, "ok"
 
     def fail_if_called(*_args, **_kwargs):
         pytest.fail("Should not call API cleanup/upsert when probe policy is abort")

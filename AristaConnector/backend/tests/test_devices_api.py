@@ -28,6 +28,8 @@ async def test_create_device(client: AsyncClient, db_session):
     assert data["username"] == "admin"
     assert data["interval_sec"] == 10
     assert data["enabled"] is True
+    assert data["identity_mode"] == "auto"
+    assert data["identity_status"] == "unbound"
     assert "id" in data
     assert "created_at" in data
 
@@ -281,3 +283,108 @@ async def test_delete_device_not_found(client: AsyncClient):
     fake_id = "00000000-0000-0000-0000-000000000000"
     response = await client.delete(f"/devices/{fake_id}")
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_device_manual_identity_requires_expected_fingerprint(client: AsyncClient):
+    payload = {
+        "hostname": "manual-identity-device",
+        "ip": "192.168.1.210",
+        "port": 443,
+        "username": "admin",
+        "password": "admin123",
+        "interval_sec": 10,
+        "enabled": True,
+        "identity_mode": "manual",
+    }
+
+    response = await client.post("/devices", json=payload)
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_device_duplicate_expected_identity_fingerprint_returns_409(client: AsyncClient):
+    fingerprint = "f" * 64
+    first = {
+        "hostname": "identity-a",
+        "ip": "192.168.1.211",
+        "port": 443,
+        "username": "admin",
+        "password": "admin123",
+        "interval_sec": 10,
+        "enabled": True,
+        "identity_mode": "manual",
+        "expected_identity_fingerprint": fingerprint,
+    }
+    second = {
+        "hostname": "identity-b",
+        "ip": "192.168.1.212",
+        "port": 443,
+        "username": "admin",
+        "password": "admin123",
+        "interval_sec": 10,
+        "enabled": True,
+        "identity_mode": "manual",
+        "expected_identity_fingerprint": fingerprint,
+    }
+
+    response1 = await client.post("/devices", json=first)
+    assert response1.status_code == 201
+
+    response2 = await client.post("/devices", json=second)
+    assert response2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_update_device_identity_mode_manual_requires_expected(client: AsyncClient):
+    create_response = await client.post(
+        "/devices",
+        json={
+            "hostname": "identity-update",
+            "ip": "192.168.1.213",
+            "port": 443,
+            "username": "admin",
+            "password": "admin123",
+            "interval_sec": 10,
+            "enabled": True,
+        },
+    )
+    assert create_response.status_code == 201
+    device_id = create_response.json()["id"]
+
+    response = await client.patch(
+        f"/devices/{device_id}",
+        json={"identity_mode": "manual"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_device_with_manual_expected_identity(client: AsyncClient):
+    create_response = await client.post(
+        "/devices",
+        json={
+            "hostname": "identity-update-ok",
+            "ip": "192.168.1.214",
+            "port": 443,
+            "username": "admin",
+            "password": "admin123",
+            "interval_sec": 10,
+            "enabled": True,
+        },
+    )
+    assert create_response.status_code == 201
+    device_id = create_response.json()["id"]
+    fingerprint = "a" * 64
+
+    response = await client.patch(
+        f"/devices/{device_id}",
+        json={
+            "identity_mode": "manual",
+            "expected_identity_fingerprint": fingerprint,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["identity_mode"] == "manual"
+    assert data["expected_identity_fingerprint"] == fingerprint

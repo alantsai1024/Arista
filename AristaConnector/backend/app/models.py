@@ -21,7 +21,38 @@ class Device(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
     # Relationships
+    identity = relationship(
+        "DeviceIdentity",
+        back_populates="device",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     events = relationship("Event", back_populates="device", cascade="all, delete-orphan")
+
+
+class DeviceIdentity(Base):
+    __tablename__ = "device_identities"
+
+    device_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("devices.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+    mode = Column(String(16), nullable=False, default="auto")
+    expected_fingerprint = Column(String(64), nullable=True, unique=True, index=True)
+    last_observed_fingerprint = Column(String(64), nullable=True, index=True)
+    status = Column(String(32), nullable=False, default="unbound", index=True)
+    serial_number = Column(String(255), nullable=True)
+    system_mac = Column(String(64), nullable=True)
+    source = Column(String(64), nullable=True)
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_conflict_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+    # Relationships
+    device = relationship("Device", back_populates="identity")
 
 
 class Event(Base):

@@ -33,6 +33,8 @@ curl -X POST http://localhost:8000/devices \
     "port":443,
     "username":"admin",
     "password":"0000",
+    "identity_mode":"auto",
+    "expected_identity_fingerprint":null,
     "interval_sec":10,
     "enabled":true
   }'
@@ -59,6 +61,7 @@ curl -s http://localhost:8000/devices/<device_id>/status | jq .
 ## 3. 方法 B：批次新增設備（推薦）
 
 此方法會先對目標 IP 做 eAPI probe，再 upsert 到 `/devices`。
+若 probe 能取得 `show version` 的 serial/mac，腳本會自動帶入 `expected_identity_fingerprint`，降低同 IP 誤判風險。
 
 先準備逐機帳密檔：
 
@@ -113,6 +116,8 @@ curl -X PATCH http://localhost:8000/devices/<device_id> \
     "ip":"192.168.56.10",
     "username":"admin",
     "password":"0000",
+    "identity_mode":"manual",
+    "expected_identity_fingerprint":"<64-char sha256 hex>",
     "interval_sec":10,
     "enabled":true
   }'
@@ -129,6 +134,7 @@ docker compose logs -f collector
 你應該看到類似：
 - `✓ Device ... - online`
 - 若失敗則會有 `poll_error` 訊息
+- 若身份不一致會看到 `ip_conflict`（此時只發 state，不發 telemetry/raw）
 
 ### 5.2 訂閱 MQTT topic
 
@@ -161,6 +167,7 @@ curl -s http://localhost:8000/devices/<device_id>/events | jq .
 | 新增成功但顯示 `offline` | collector 沒跑、設備不可達、帳密錯誤 | `docker compose logs -f collector`，再測 `POST /devices/{id}/test-connection` |
 | 看不到 MQTT 訊息 | MQTT 未連線或訂閱 topic 不對 | 檢查 `arista-mqtt` 狀態，訂閱 `arista/default/+/state` 與 `arista/default/+/telemetry/+` |
 | `Device with this IP address already exists` | 同 IP 已存在 | 用 `PATCH /devices/{id}` 更新，或刪除舊設備後重建 |
+| 設備顯示 `ip_conflict` | 同 IP 回到不同實體、或克隆設備 serial/mac 重複 | 先修正實體網路/IP，再確認 `expected_identity_fingerprint` 與實際 `show version` 一致 |
 | 設備常被判斷離線 | `interval_sec` 設太長 | 建議先用 `10~30` 秒；若要更長，需同步調整健康判斷策略 |
 | 有一台離線時覺得畫面卡住 | 單一路徑 API 或設備狀態請求阻塞 | 目前 `/fleet` 已改為 fail-open：先顯示可用資料，並在告警區提示異常來源 |
 

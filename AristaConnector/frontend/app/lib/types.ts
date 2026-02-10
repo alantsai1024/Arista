@@ -1,4 +1,4 @@
-export type DeviceOperationalStatus = 'online' | 'degraded' | 'offline' | 'unknown'
+export type DeviceOperationalStatus = 'online' | 'degraded' | 'offline' | 'ip_conflict' | 'unknown'
 export type TimelineSeverity = 'critical' | 'warning' | 'info'
 export type TimelineRange = '1h' | '6h' | '24h' | 'all'
 
@@ -10,6 +10,12 @@ export interface Device {
   username: string
   interval_sec: number
   enabled: boolean
+  identity_mode: 'auto' | 'manual'
+  identity_status: string | null
+  expected_identity_fingerprint: string | null
+  last_observed_identity_fingerprint: string | null
+  identity_last_verified_at: string | null
+  identity_last_conflict_at: string | null
   created_at: string
   updated_at: string | null
 }
@@ -90,6 +96,8 @@ export interface DeviceCreatePayload {
   port: number
   username: string
   password: string
+  identity_mode?: 'auto' | 'manual'
+  expected_identity_fingerprint?: string | null
   interval_sec: number
   enabled: boolean
 }
@@ -100,6 +108,8 @@ export interface DeviceUpdatePayload {
   port?: number
   username?: string
   password?: string
+  identity_mode?: 'auto' | 'manual'
+  expected_identity_fingerprint?: string | null
   interval_sec?: number
   enabled?: boolean
 }
@@ -109,4 +119,3 @@ export interface ExportPayload<T> {
   generatedAt: string
   rows: T[]
 }
-

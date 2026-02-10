@@ -46,6 +46,7 @@
 - ✅ 每個 eAPI 指令都發布遙測訊息
 - ✅ envelope 內含 latency
 - ✅ 有處理 MQTT 發布失敗情況
+- ✅ 當設備進入 `ip_conflict` 或 `identity_insufficient`，僅發布 state，停止 telemetry/raw
 
 ### 3. Docker Compose
 

@@ -49,7 +49,7 @@ test.beforeEach(async ({ page }) => {
 
   const statusMap: Record<string, { status: string; online: boolean; latency: number | null; events: number }> = {
     'device-1': { status: 'online', online: true, latency: 32, events: 24 },
-    'device-2': { status: 'degraded', online: false, latency: 88, events: 11 },
+    'device-2': { status: 'ip_conflict', online: false, latency: 88, events: 11 },
   }
 
   await page.route('**://localhost:8000/health/fleet', async (route) => {
@@ -183,12 +183,15 @@ test('devices page supports CRUD operations, test connection, and export', async
   await expect(page.locator('h1')).toContainText('設備管理中心')
   await expect(page.getByTestId('devices-table')).toBeVisible()
   await expect(page.locator('table').getByText('leaf-01')).toBeVisible()
+  await expect(page.locator('table').getByText('IP 衝突')).toBeVisible()
 
   await page.getByRole('button', { name: '新增設備' }).dispatchEvent('click')
-  await setInputValue(page.getByLabel('Hostname'), 'leaf-03')
-  await setInputValue(page.getByLabel('IP'), '10.10.10.10')
-  await setInputValue(page.getByLabel('Username'), 'admin')
-  await setInputValue(page.getByLabel('Password'), 'secret123')
+  const modal = page.locator('div.fixed.inset-0').last()
+  await expect(modal).toBeVisible()
+  await setInputValue(modal.getByLabel('Hostname'), 'leaf-03')
+  await setInputValue(modal.getByLabel('IP'), '10.10.10.10')
+  await setInputValue(modal.getByLabel('Username'), 'admin')
+  await setInputValue(modal.getByLabel('Password'), 'secret123')
   await page.getByRole('button', { name: '建立設備' }).dispatchEvent('click')
   await expect(page.locator('table').getByText('10.10.10.10')).toBeVisible()
 
@@ -205,4 +208,14 @@ test('devices page supports CRUD operations, test connection, and export', async
 
   await page.getByRole('button', { name: /CSV/i }).dispatchEvent('click')
   await expect(page.getByText('已匯出 CSV')).toBeVisible()
+})
+
+test('devices page can filter ip_conflict status', async ({ page }) => {
+  await page.goto('/devices')
+
+  const statusFilter = page.locator('label:has-text("狀態") select').first()
+  await statusFilter.selectOption('ip_conflict')
+  await expect(statusFilter).toHaveValue('ip_conflict')
+  await expect(page.locator('table').getByText('leaf-02')).toBeVisible()
+  await expect(page.locator('table').getByText('leaf-01')).toHaveCount(0)
 })

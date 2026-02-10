@@ -16,6 +16,9 @@
   - `password_enc`（加密後密碼，text）
   - `interval_sec`（整數，預設 10）
   - `enabled`（布林，預設 true，已建立索引）
+  - `identity_mode`（`auto|manual`）
+  - `expected_identity_fingerprint`（可選 64-char sha256）
+  - `identity_status`（`unbound|verified|conflict|insufficient_identity`）
   - `created_at`、`updated_at`（時間戳）
 - ✅ events 資料表使用 UUID 外鍵
 - ✅ 完成關聯設定（Device -> Events）
@@ -75,6 +78,7 @@ alembic upgrade head
   - 驗證 interval（5 到 300 秒）
   - 寫入前加密密碼
   - 防止重複 IP
+  - 防止重複 `expected_identity_fingerprint`（HTTP 409）
 - ✅ `GET /devices`：列出所有設備
   - 依建立時間排序回傳
 - ✅ `GET /devices/{id}`：取得單一設備
@@ -84,12 +88,14 @@ alembic upgrade head
   - 可更新 interval、enabled、帳密、IP 等
   - 若提供 IP/interval 會做驗證
   - 密碼更新時會重新加密
+  - 支援更新 identity mode 與 expected fingerprint
 - ✅ `POST /devices/{id}/test-connection`：測試 eAPI 連線
   - 呼叫 Arista eAPI 的 `show hostname`
   - 成功時回傳 hostname，失敗回傳錯誤
 - ✅ `GET /devices/{id}/status`：由 Redis 取得設備狀態
   - 回傳 online/offline
   - 回傳 last_seen
+  - 支援 `ip_conflict` 狀態，且僅 `status=online` 才會 `online=true`
 
 ### 7. eAPI Client
 

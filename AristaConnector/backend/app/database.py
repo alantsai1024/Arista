@@ -20,7 +20,7 @@ async def init_db():
     """Initialize database tables"""
     async with engine.begin() as conn:
         # Import models to register them
-        from app.models import Device, Event
+        from app.models import Device, DeviceIdentity, Event  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
 
 

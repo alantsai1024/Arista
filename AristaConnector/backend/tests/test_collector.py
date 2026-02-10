@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.dao.events import get_recent_events
-from app.models import Device, Event
+from app.models import Device, DeviceIdentity, Event
 from app.services.retention_sink import RetentionSink
 from app.utils.encryption import encrypt_password
 
@@ -98,7 +98,9 @@ async def test_collector_mock_small_scale(monkeypatch, db_session, tmp_path):
     for device in devices:
         await db_session.refresh(device)
 
-    async def fake_poll_device(**kwargs):  # noqa: ANN003, ANN202, ARG001
+    async def fake_poll_device(**kwargs):  # noqa: ANN003, ANN202
+        ip = kwargs["ip"]
+        suffix = ip.split(".")[-1]
         return (
             True,
             None,
@@ -106,7 +108,11 @@ async def test_collector_mock_small_scale(monkeypatch, db_session, tmp_path):
                 "show clock": {"clockSource": {"local": True}},
                 "show hostname": {"hostname": "veos-mock"},
                 "show interfaces status": {"interfaceStatuses": {}},
-                "show version": {"version": "4.31.1F"},
+                "show version": {
+                    "version": "4.31.1F",
+                    "serialNumber": f"SN-MOCK-{suffix}",
+                    "systemMacAddress": f"00:11:22:33:44:{int(suffix):02x}",
+                },
             },
             12.34,
         )
@@ -165,7 +171,9 @@ async def test_collector_concurrent_event_writes(monkeypatch, db_session, tmp_pa
     for device in devices:
         await db_session.refresh(device)
 
-    async def fake_poll_device(**kwargs):  # noqa: ANN003, ANN202, ARG001
+    async def fake_poll_device(**kwargs):  # noqa: ANN003, ANN202
+        ip = kwargs["ip"]
+        suffix = ip.split(".")[-1]
         return (
             True,
             None,
@@ -173,7 +181,11 @@ async def test_collector_concurrent_event_writes(monkeypatch, db_session, tmp_pa
                 "show clock": {"clockSource": {"local": True}},
                 "show hostname": {"hostname": "veos-mock"},
                 "show interfaces status": {"interfaceStatuses": {}},
-                "show version": {"version": "4.31.1F"},
+                "show version": {
+                    "version": "4.31.1F",
+                    "serialNumber": f"SN-MOCK-{suffix}",
+                    "systemMacAddress": f"00:11:22:33:55:{int(suffix):02x}",
+                },
             },
             10.0,
         )
@@ -258,7 +270,11 @@ async def test_poll_error_cap_resets_after_success(monkeypatch, db_session, tmp_
                 "show clock": {"clockSource": {"local": True}},
                 "show hostname": {"hostname": "veos-recovered"},
                 "show interfaces status": {"interfaceStatuses": {}},
-                "show version": {"version": "4.31.1F"},
+                "show version": {
+                    "version": "4.31.1F",
+                    "serialNumber": "SN-MOCK-3",
+                    "systemMacAddress": "00:11:22:33:44:77",
+                },
             },
             9.5,
         ),
@@ -352,3 +368,121 @@ async def test_poll_error_cap_applies_to_exception_path(monkeypatch, db_session,
     state = device_states[device.id]
     assert state["consecutive_error_event_writes"] == 4
     assert state["error_event_suppressed"] is True
+
+
+@pytest.mark.asyncio
+async def test_collector_auto_binds_identity_on_first_success(monkeypatch, db_session, tmp_path):
+    from collector import device_states, poll_single_device
+
+    device_states.clear()
+    device = await create_test_device(db_session, hostname="veos-bind", ip="10.20.30.1")
+
+    async def fake_poll_device(**kwargs):  # noqa: ANN003, ANN202, ARG001
+        return (
+            True,
+            None,
+            {
+                "show clock": {"clockSource": {"local": True}},
+                "show hostname": {"hostname": "veos-bind"},
+                "show interfaces status": {"interfaceStatuses": {}},
+                "show version": {
+                    "version": "4.31.1F",
+                    "serialNumber": "SN-BIND-1",
+                    "systemMacAddress": "00:11:22:AA:BB:CC",
+                },
+            },
+            11.2,
+        )
+
+    monkeypatch.setattr("collector.poll_device", fake_poll_device)
+    monkeypatch.setattr("collector.publish_state", lambda **kwargs: None)
+    monkeypatch.setattr("collector.publish_telemetry", lambda **kwargs: None)
+    monkeypatch.setattr("collector.publish_raw_compat", lambda **kwargs: None)
+
+    redis_client, semaphore, sink, event_session_factory = build_runtime_context(db_session, tmp_path)
+    await poll_single_device(device, semaphore, redis_client, sink, event_session_factory)
+
+    status = await redis_client.get(f"device:{device.id}:status")
+    assert status is not None
+    assert status.decode() == "online"
+
+    identity_query = select(DeviceIdentity).where(DeviceIdentity.device_id == device.id)
+    identity = (await db_session.execute(identity_query)).scalar_one_or_none()
+    assert identity is not None
+    assert identity.expected_fingerprint is not None
+    assert identity.status == "verified"
+
+    bound_count = await count_device_events(db_session, device.id, "identity_bound")
+    assert bound_count == 1
+
+
+@pytest.mark.asyncio
+async def test_collector_ip_conflict_blocks_telemetry_publish(monkeypatch, db_session, tmp_path):
+    from collector import device_states, poll_single_device
+
+    device_states.clear()
+    device = await create_test_device(db_session, hostname="veos-conflict", ip="10.20.30.2")
+
+    outcomes = [
+        (
+            True,
+            None,
+            {
+                "show clock": {"clockSource": {"local": True}},
+                "show hostname": {"hostname": "veos-conflict"},
+                "show interfaces status": {"interfaceStatuses": {}},
+                "show version": {
+                    "version": "4.31.1F",
+                    "serialNumber": "SN-CF-1",
+                    "systemMacAddress": "00:11:22:AA:CC:01",
+                },
+            },
+            10.0,
+        ),
+        (
+            True,
+            None,
+            {
+                "show clock": {"clockSource": {"local": True}},
+                "show hostname": {"hostname": "veos-conflict"},
+                "show interfaces status": {"interfaceStatuses": {}},
+                "show version": {
+                    "version": "4.31.1F",
+                    "serialNumber": "SN-CF-2",
+                    "systemMacAddress": "00:11:22:AA:CC:02",
+                },
+            },
+            10.5,
+        ),
+    ]
+
+    telemetry_calls: list[dict] = []
+    raw_calls: list[dict] = []
+    state_calls: list[dict] = []
+
+    async def fake_poll_device(**kwargs):  # noqa: ANN003, ANN202, ARG001
+        return outcomes.pop(0)
+
+    monkeypatch.setattr("collector.poll_device", fake_poll_device)
+    monkeypatch.setattr("collector.publish_state", lambda **kwargs: state_calls.append(kwargs))
+    monkeypatch.setattr("collector.publish_telemetry", lambda **kwargs: telemetry_calls.append(kwargs))
+    monkeypatch.setattr("collector.publish_raw_compat", lambda **kwargs: raw_calls.append(kwargs))
+
+    redis_client, semaphore, sink, event_session_factory = build_runtime_context(db_session, tmp_path)
+    await poll_single_device(device, semaphore, redis_client, sink, event_session_factory)
+    telemetry_after_first_poll = len(telemetry_calls)
+    raw_after_first_poll = len(raw_calls)
+
+    await poll_single_device(device, semaphore, redis_client, sink, event_session_factory)
+
+    status = await redis_client.get(f"device:{device.id}:status")
+    assert status is not None
+    assert status.decode() == "ip_conflict"
+
+    # Second poll hit identity conflict, telemetry/raw must not continue publishing.
+    assert len(telemetry_calls) == telemetry_after_first_poll
+    assert len(raw_calls) == raw_after_first_poll
+    assert state_calls[-1]["data"]["status"] == "ip_conflict"
+
+    conflict_count = await count_device_events(db_session, device.id, "identity_conflict")
+    assert conflict_count >= 1

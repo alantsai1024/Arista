@@ -50,13 +50,15 @@ export function statusLabel(status: string) {
       return '降級'
     case 'offline':
       return '離線'
+    case 'ip_conflict':
+      return 'IP 衝突'
     default:
       return '未知'
   }
 }
 
 export function normalizeStatus(status: string | null | undefined) {
-  if (status === 'online' || status === 'degraded' || status === 'offline') return status
+  if (status === 'online' || status === 'degraded' || status === 'offline' || status === 'ip_conflict') return status
   return 'unknown'
 }
 
@@ -89,4 +91,3 @@ export function buildFileTimestamp(date = new Date()) {
   const second = String(date.getSeconds()).padStart(2, '0')
   return `${year}${month}${day}-${hour}${minute}${second}`
 }
-

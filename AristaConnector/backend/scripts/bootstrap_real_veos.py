@@ -21,6 +21,18 @@ from typing import Any
 import requests
 import urllib3
 
+# Ensure `/app` (project root) is importable when executing this file directly.
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.services.device_identity import (
+    compute_identity_fingerprint,
+    normalize_serial_number,
+    normalize_system_mac,
+)
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 DEFAULT_TARGETS = "192.168.56.2,192.168.56.3,192.168.56.4"
@@ -177,11 +189,32 @@ def build_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def eapi_probe(ip: str, port: int, username: str, password: str, timeout: float = 10.0) -> tuple[bool, str | None, str]:
+def _extract_show_version_identity(show_version: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
+    serial = show_version.get("serialNumber") or show_version.get("serial_number") or show_version.get("serial")
+    system_mac = (
+        show_version.get("systemMacAddress")
+        or show_version.get("system_mac_address")
+        or show_version.get("systemMac")
+        or show_version.get("macAddress")
+        or show_version.get("mac")
+    )
+    normalized_serial = normalize_serial_number(serial) if isinstance(serial, str) else None
+    normalized_mac = normalize_system_mac(system_mac) if isinstance(system_mac, str) else None
+    fingerprint = compute_identity_fingerprint(normalized_serial, normalized_mac)
+    return normalized_serial, normalized_mac, fingerprint
+
+
+def eapi_probe(
+    ip: str,
+    port: int,
+    username: str,
+    password: str,
+    timeout: float = 10.0,
+) -> tuple[bool, str | None, str | None, dict[str, str | None], str]:
     payload = {
         "jsonrpc": "2.0",
         "method": "runCmds",
-        "params": {"version": 1, "cmds": ["show hostname"], "format": "json"},
+        "params": {"version": 1, "cmds": ["show hostname", "show version"], "format": "json"},
         "id": "1",
     }
 
@@ -194,20 +227,22 @@ def eapi_probe(ip: str, port: int, username: str, password: str, timeout: float 
             timeout=timeout,
         )
         if resp.status_code != 200:
-            return False, None, f"HTTP {resp.status_code}: {resp.text}"
+            return False, None, None, {"serial_number": None, "system_mac": None}, f"HTTP {resp.status_code}: {resp.text}"
 
         data = resp.json()
         if "error" in data:
-            return False, None, str(data["error"])
+            return False, None, None, {"serial_number": None, "system_mac": None}, str(data["error"])
 
         results = data.get("result", [])
-        if not results:
-            return False, None, "empty result"
+        if len(results) < 2:
+            return False, None, None, {"serial_number": None, "system_mac": None}, "empty result"
 
         hostname = results[0].get("hostname")
-        return True, hostname, "ok"
+        show_version = results[1] if isinstance(results[1], dict) else {}
+        serial_number, system_mac, fingerprint = _extract_show_version_identity(show_version)
+        return True, hostname, fingerprint, {"serial_number": serial_number, "system_mac": system_mac}, "ok"
     except Exception as exc:  # noqa: BLE001
-        return False, None, str(exc)
+        return False, None, None, {"serial_number": None, "system_mac": None}, str(exc)
 
 
 def api_get_devices(api_url: str) -> list[dict[str, Any]]:
@@ -262,6 +297,7 @@ def upsert_targets(
     api_url: str,
     existing_by_ip: dict[str, dict[str, Any]],
     hostnames_by_ip: dict[str, str],
+    fingerprints_by_ip: dict[str, str],
     *,
     targets: list[str],
     credentials_by_ip: CredentialsByIP,
@@ -280,6 +316,8 @@ def upsert_targets(
             "password": password,
             "interval_sec": interval_sec,
             "enabled": True,
+            "identity_mode": "auto",
+            "expected_identity_fingerprint": fingerprints_by_ip.get(ip),
         }
 
         existing = existing_by_ip.get(ip)
@@ -320,16 +358,24 @@ def main(argv: list[str] | None = None) -> int:
     print("")
 
     hostnames_by_ip: dict[str, str] = {}
+    fingerprints_by_ip: dict[str, str] = {}
     probe_successes: list[tuple[str, str]] = []
     probe_failures: list[tuple[str, str]] = []
     for ip in targets:
         username, password = get_credentials_for_target(ip, credentials_by_ip)
-        ok, hostname, message = eapi_probe(ip, args.port, username, password)
+        ok, hostname, fingerprint, identity_meta, message = eapi_probe(ip, args.port, username, password)
         if ok:
             resolved_hostname = hostname or ip
             hostnames_by_ip[ip] = resolved_hostname
+            if fingerprint:
+                fingerprints_by_ip[ip] = fingerprint
             probe_successes.append((ip, resolved_hostname))
-            print(f"[OK] eAPI probe {ip} -> hostname={resolved_hostname}")
+            print(
+                f"[OK] eAPI probe {ip} -> hostname={resolved_hostname} "
+                f"fingerprint={'set' if fingerprint else 'missing'} "
+                f"serial={identity_meta.get('serial_number') or '-'} "
+                f"mac={identity_meta.get('system_mac') or '-'}"
+            )
         else:
             hostnames_by_ip[ip] = ip
             probe_failures.append((ip, message))
@@ -373,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
         args.api_url,
         existing_by_ip,
         hostnames_by_ip,
+        fingerprints_by_ip,
         targets=targets,
         credentials_by_ip=credentials_by_ip,
         port=args.port,

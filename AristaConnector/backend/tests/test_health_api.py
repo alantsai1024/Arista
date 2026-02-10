@@ -147,3 +147,40 @@ async def test_fleet_health_unknown_status_counted_as_offline(client: AsyncClien
     device_status = data["devices"][0]
     assert device_status["status"] == "unknown"
     assert device_status["recent_stats"]["total_events_last_hour"] == 0
+
+
+@pytest.mark.asyncio
+async def test_fleet_health_ip_conflict_not_counted_online(client: AsyncClient, monkeypatch):
+    redis_client = FakeRedis()
+
+    async def fake_get_redis_client():
+        return redis_client
+
+    monkeypatch.setattr("app.routers.health.get_redis_client", fake_get_redis_client)
+
+    create = await client.post(
+        "/devices",
+        json={
+            "hostname": "veos-conflict",
+            "ip": "192.168.56.20",
+            "username": "admin",
+            "password": "pw",
+            "interval_sec": 10,
+        },
+    )
+    assert create.status_code == 201
+    device_id = create.json()["id"]
+
+    now = datetime.now()
+    redis_client.set_raw(f"device:{device_id}:status", "ip_conflict")
+    redis_client.set_raw(f"device:{device_id}:last_seen", now.isoformat())
+
+    response = await client.get("/health/fleet")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["online_devices"] == 0
+    assert payload["degraded_devices"] == 0
+    assert payload["offline_devices"] == 1
+    assert payload["devices"][0]["status"] == "ip_conflict"
+    assert payload["devices"][0]["online"] is False
